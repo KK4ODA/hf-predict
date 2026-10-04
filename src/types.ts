@@ -141,3 +141,97 @@ export type Coverage = {
   bands: Band[];
   cells: CoverageCell[];
 };
+
+export type Transport = "internet" | "winlink" | "pasted" | "file";
+
+export type Wwv = {
+  kind: "wwv";
+  solarFlux: number | null;
+  aIndex: number | null;
+  kIndex: number | null;
+  kTime: string | null;
+  past24h: string;
+  next24h: string;
+};
+
+export type Sgas = {
+  kind: "sgas";
+  dataDate: string | null;
+  solarFlux: number | null;
+  sunspotNumber: number | null;
+  aFredericksburg: number | null;
+  aPlanetary: number | null;
+  xrayBackground: string | null;
+  planetaryK: (number | null)[];
+  energeticEvents: string[];
+  protonEvents: string | null;
+  geomagneticSummary: string | null;
+};
+
+export type ThreeDay = {
+  kind: "threeDay";
+  days: string[];
+  kp: { period: string; values: (number | null)[] }[];
+  observedMaxKp: number | null;
+  expectedMaxKp: number | null;
+  radiationStormPct: (number | null)[];
+  blackoutR1R2Pct: (number | null)[];
+  blackoutR3Pct: (number | null)[];
+  geomagneticRationale: string | null;
+  blackoutRationale: string | null;
+};
+
+export type Outlook27 = {
+  kind: "outlook27";
+  days: { date: string; solarFlux: number | null; aIndex: number | null; maxKp: number | null }[];
+};
+
+export type Product = Wwv | Sgas | ThreeDay | Outlook27;
+
+export type StoredProduct = {
+  product: Product;
+  /** Seconds since the Unix epoch. */
+  issued: number;
+  received: number;
+  transport: Transport;
+  text: string;
+};
+
+export type ProductStatus = {
+  kind: string;
+  title: string;
+  sourceUrl: string;
+  winlinkId: string;
+  stored: StoredProduct | null;
+  ageSeconds: number | null;
+  staleAfterSeconds: number;
+  stale: boolean;
+};
+
+export type SsnTableStatus = {
+  source: string;
+  generated: string;
+  generatedUnix: number;
+  downloaded: boolean;
+  lastObservedMonth: string;
+  lastPredictedMonth: string;
+  ageSeconds: number;
+  stale: boolean;
+};
+
+export type Conditions = {
+  now: number;
+  products: ProductStatus[];
+  ssnTable: SsnTableStatus;
+  storm: string | null;
+};
+
+export type FetchResult = { title: string; ok: boolean; detail: string };
+
+export type Imported = {
+  title: string;
+  outcome: "stored" | "alreadyHave" | "olderThanStored" | "notUnderstood";
+  detail: string | null;
+};
+
+export type ConditionsUpdate<T> = { results: T[]; conditions: Conditions };

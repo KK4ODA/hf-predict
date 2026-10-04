@@ -18,7 +18,8 @@ Working now:
 - Best bands for any hour, short and long path, a chart of the usable frequency range through the day, and a transmit-power comparison.
 - A world map for picking either end of the path, with day and night and a coverage overlay showing where a band reaches.
 - Station presets (power, antenna, local noise), saved stations and saved locations.
-- A bundled NOAA smoothed sunspot table, so no network is needed.
+- A bundled NOAA smoothed sunspot table, so no network is needed. A newer one is downloaded when there is a network.
+- Solar and geophysical conditions (flux, A and K indices, storm state, three-day and 27-day forecasts) with source and age. They can be fetched from NOAA, or requested over Winlink and imported from files or pasted text.
 - In-app update check.
 
 The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture and the roadmap.

@@ -1,10 +1,10 @@
 //! Saved locations and station profiles, kept as one JSON file.
 
-use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::jsonfile;
 use crate::station::StationProfile;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -24,27 +24,17 @@ pub struct UserData {
 
 /// A missing file is an empty `UserData`; an unreadable one is an error.
 pub fn load(path: &Path) -> Result<UserData, String> {
-    match fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text)
-            .map_err(|e| format!("{} is not valid saved data: {e}", path.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(UserData::default()),
-        Err(e) => Err(format!("cannot read {}: {e}", path.display())),
-    }
+    jsonfile::load(path)
 }
 
-/// Writes to a temporary file first so a crash cannot leave a half-written file.
 pub fn save(path: &Path, data: &UserData) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-    }
-    let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, text).map_err(|e| format!("cannot write {}: {e}", temporary.display()))?;
-    fs::rename(&temporary, path).map_err(|e| format!("cannot replace {}: {e}", path.display()))
+    jsonfile::save(path, data)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::station;
 
