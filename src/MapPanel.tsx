@@ -15,6 +15,8 @@ type Props = {
   mode: Mode;
   reliability: number;
   bands: Band[];
+  /** UTC hour shown across the app, 0 to 23. */
+  clockHour: number;
   onPickTx: (position: string) => void;
   onPickRx: (position: string) => void;
 };
@@ -44,11 +46,10 @@ function useResolved(text: string): LatLon | null {
 
 /** The map, with picking of either end of the path and a coverage overlay. */
 export function MapPanel(props: Props) {
-  const { txPosition, rxPosition, year, month, ssn, txStation, rxStation, mode, reliability } = props;
+  const { txPosition, rxPosition, year, month, ssn, txStation, rxStation, mode, reliability, clockHour } = props;
   const from = useResolved(txPosition);
   const to = useResolved(rxPosition);
   const [picking, setPicking] = useState<"from" | "to" | null>(null);
-  const [clockHour, setClockHour] = useState(new Date().getUTCHours());
   const [bandIndex, setBandIndex] = useState(
     Math.max(0, props.bands.findIndex((b) => b.name === DEFAULT_BAND)),
   );
@@ -91,7 +92,6 @@ export function MapPanel(props: Props) {
 
   return (
     <section>
-      <h2>Map</h2>
       <div className="controls">
         <div className="segmented" role="group" aria-label="Pick a location on the map">
           <button
@@ -109,16 +109,6 @@ export function MapPanel(props: Props) {
             Pick To
           </button>
         </div>
-        <label className="inline">
-          Hour
-          <select value={clockHour} onChange={(e) => setClockHour(Number(e.target.value))}>
-            {Array.from({ length: 24 }, (_, h) => (
-              <option key={h} value={h}>
-                {String(h).padStart(2, "0")} UTC
-              </option>
-            ))}
-          </select>
-        </label>
         <label className="inline">
           Band
           <select value={bandIndex} onChange={(e) => setBandIndex(Number(e.target.value))}>

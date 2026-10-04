@@ -1,0 +1,15 @@
+:Product: Geophysical Alert Message wwv.txt
+:Issued: 2026 Oct 04 2110 UTC
+# Prepared by the US Dept. of Commerce, NOAA, Space Weather Prediction Center
+#
+#          Geophysical Alert Message
+#
+Solar-terrestrial indices for 04 October follow.
+Solar flux 92 and estimated planetary A-index 40.
+The estimated planetary K-index at 2100 UTC on 04 October was 5.67.
+
+Space weather for the past 24 hours has been moderate.
+Geomagnetic storms reaching the G2 level occurred.
+
+Space weather for the next 24 hours is predicted to be moderate.
+Geomagnetic storms reaching the G2 level are expected.

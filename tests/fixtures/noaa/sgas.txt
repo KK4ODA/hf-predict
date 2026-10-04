@@ -1,0 +1,26 @@
+:Product: Solar and Geophysical Activity Summary
+:Issued: 2026 Oct 04 0245 UTC
+# Prepared jointly by the U.S. Dept. of Commerce, NOAA,
+# Space Weather Prediction Center and the U.S. Air Force.
+#
+Joint USAF/NOAA Solar and Geophysical Activity Summary
+SGAS Number 277 Issued at 0245Z on 04 Oct 2026
+This report is compiled from data received at SWO on 03 Oct
+A.  Energetic Events
+Begin  Max  End  Rgn   Loc   Xray  Op 245MHz 10cm   Sweep
+None
+B.  Proton Events:  None
+C.  Geomagnetic Activity Summary:  Field activity was at quiet to
+unsettled levels.
+D.  Stratwarm:  Not Available
+E.  Daily Indices: (real-time preliminary/estimated values)
+10 cm 093  SSN 053  Afr/Ap 008/???   X-ray Background B1.7
+Daily Proton Fluence (flux accumulation over 24 hrs)
+GT 1 MeV 3.1e+05   GT 10 MeV 2.1e+04 p/(cm2-ster-day)
+(GOES-18 satellite synchronous orbit W137 degrees)
+Daily Electron Fluence
+GT 2 MeV 2.10e+07 e/(cm2-ster-day)
+(GOES-19 satellite synchronous orbit W72 degrees)
+3 Hour K-indices:
+Boulder 2 3 3 2 1 2 1 1 Planetary 2 3 3 2 2 1 ? ? 
+F.  Comments:  None
