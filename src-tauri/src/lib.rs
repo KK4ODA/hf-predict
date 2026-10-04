@@ -1,3 +1,4 @@
+pub mod coverage;
 pub mod engine;
 pub mod geo;
 pub mod predictor;
@@ -12,6 +13,8 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::{path::BaseDirectory, Manager};
 
+use coverage::{Coverage, CoverageRequest};
+use geo::LatLon;
 use predictor::{PathOverview, PathRequest};
 use station::{Band, Choice, Mode, StationProfile};
 use userdata::UserData;
@@ -38,8 +41,8 @@ fn options() -> Options {
     }
 }
 
-#[tauri::command(async)]
-fn predict_overview(app: tauri::AppHandle, request: PathRequest) -> Result<PathOverview, String> {
+/// The bundled engine, with run folders under the app's local data.
+fn engine(app: &tauri::AppHandle) -> Result<voacap::VoacaplEngine, String> {
     let engine_root = app
         .path()
         .resolve("engine", BaseDirectory::Resource)
@@ -49,8 +52,23 @@ fn predict_overview(app: tauri::AppHandle, request: PathRequest) -> Result<PathO
         .app_local_data_dir()
         .map_err(|e| e.to_string())?
         .join("run");
-    let engine = voacap::VoacaplEngine::new(&engine_root, &run_root)?;
-    predictor::predict_overview(&engine, &request)
+    voacap::VoacaplEngine::new(&engine_root, &run_root)
+}
+
+#[tauri::command(async)]
+fn predict_overview(app: tauri::AppHandle, request: PathRequest) -> Result<PathOverview, String> {
+    predictor::predict_overview(&engine(&app)?, &request)
+}
+
+#[tauri::command(async)]
+fn predict_coverage(app: tauri::AppHandle, request: CoverageRequest) -> Result<Coverage, String> {
+    coverage::predict_coverage(&engine(&app)?, &request)
+}
+
+/// Turns a locator or latitude, longitude into coordinates, for the map.
+#[tauri::command]
+fn resolve_position(text: String) -> Result<LatLon, String> {
+    geo::parse_position(&text)
 }
 
 fn user_data_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -79,6 +97,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             options,
             predict_overview,
+            predict_coverage,
+            resolve_position,
             load_user_data,
             save_user_data
         ])

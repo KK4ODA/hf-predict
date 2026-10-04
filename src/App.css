@@ -11,6 +11,7 @@
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
+  --land: #d9dee5;
   --good: #0ca30c;
   --warning: #fab219;
   --serious: #ec835a;
@@ -27,6 +28,7 @@
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
+    --land: #333c48;
   }
 }
 
@@ -440,4 +442,77 @@ table.results tr.selected td {
 
 .tooltip-title {
   color: var(--muted);
+}
+
+.map {
+  position: relative;
+  max-width: 760px;
+  margin-top: 8px;
+}
+
+.map svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.map svg.picking {
+  cursor: crosshair;
+}
+
+.map .sea {
+  fill: var(--surface);
+}
+
+.map .land {
+  fill: var(--land);
+}
+
+.map .graticule {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+
+.map .night {
+  fill: rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.map .route {
+  fill: none;
+  stroke: var(--series-2);
+  stroke-width: 2;
+}
+
+.map .marker {
+  fill: var(--series-2);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.map .marker-label {
+  fill: currentColor;
+  font-size: 12px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+}
+
+.ramp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 0.85rem;
+}
+
+.ramp-bar {
+  width: 160px;
+  height: 10px;
+  border: 1px solid var(--border);
+  background: linear-gradient(to right, rgba(57, 135, 229, 0), rgba(57, 135, 229, 0.7));
 }

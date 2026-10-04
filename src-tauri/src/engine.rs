@@ -66,7 +66,14 @@ impl Engine {
                 String::from_utf8_lossy(&said).trim()
             ));
         }
-        fs::read_to_string(&output).map_err(|e| format!("engine produced no output: {e}"))
+        // The engine exits with success even when it rejects the deck, so
+        // what it printed is the only explanation for a missing output file.
+        fs::read_to_string(&output).map_err(|e| {
+            format!(
+                "engine produced no output ({e}): {}",
+                String::from_utf8_lossy(&result.stdout).trim()
+            )
+        })
     }
 }
 

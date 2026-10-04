@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { MapPanel } from "./MapPanel";
 import { Overview } from "./Overview";
 import { StationEditor } from "./StationEditor";
 import { UpdateCheck } from "./UpdateCheck";
@@ -276,6 +277,22 @@ function App() {
           {run.kind === "running" ? "Predicting…" : "Predict"}
         </button>
       </form>
+
+      <MapPanel
+        txPosition={txPosition}
+        rxPosition={rxPosition}
+        longPath={longPath}
+        year={year}
+        month={month}
+        ssn={ssn.trim() === "" ? null : Number(ssn)}
+        txStation={txStation}
+        rxStation={rxStation}
+        mode={mode}
+        reliability={reliability}
+        bands={options.bands}
+        onPickTx={setTxPosition}
+        onPickRx={setRxPosition}
+      />
 
       {run.kind === "failed" && <p className="error">Prediction failed: {run.error}</p>}
       {run.kind === "done" && <Overview overview={run.result} startOnLongPath={longPath} />}

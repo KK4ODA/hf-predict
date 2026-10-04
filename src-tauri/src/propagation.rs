@@ -40,6 +40,8 @@ pub struct PredictionRequest {
     pub path: PathKind,
     pub year: i32,
     pub month: u32,
+    /// One UTC hour as VOACAP numbers them (1-24), or `None` for all 24.
+    pub utc_hour: Option<u32>,
     /// Monthly smoothed sunspot number.
     pub ssn: f64,
     pub frequencies_mhz: Vec<f64>,
@@ -139,4 +141,25 @@ pub struct EngineRun {
 pub trait PropagationEngine {
     fn name(&self) -> &str;
     fn predict(&self, request: &PredictionRequest) -> Result<EngineRun, String>;
+
+    /// Predicts one hour (`request.utc_hour` must be set) from the request's
+    /// transmitter to each receiver, with everything else as in the request,
+    /// antenna bearings included. Returns one entry per receiver, in order.
+    /// Engines can override this when they can do better than one run each.
+    fn predict_hour_to_many(
+        &self,
+        request: &PredictionRequest,
+        receivers: &[LatLon],
+    ) -> Result<Vec<HourPrediction>, String> {
+        if request.utc_hour.is_none() {
+            return Err("predicting to many receivers needs a single hour".into());
+        }
+        receivers
+            .iter()
+            .map(|&rx| {
+                let run = self.predict(&PredictionRequest { rx, ..request.clone() })?;
+                run.prediction.hours.into_iter().next().ok_or_else(|| "engine returned no hours".to_string())
+            })
+            .collect()
+    }
 }

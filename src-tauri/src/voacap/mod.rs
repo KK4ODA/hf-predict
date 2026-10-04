@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::engine::Engine;
-use crate::propagation::{EngineRun, PredictionRequest, PropagationEngine};
+use crate::geo::LatLon;
+use crate::propagation::{EngineRun, HourPrediction, PredictionRequest, PropagationEngine};
 
 static RUN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -25,27 +26,53 @@ impl VoacaplEngine {
     }
 }
 
-impl PropagationEngine for VoacaplEngine {
-    fn name(&self) -> &str {
-        "voacapl"
-    }
-
-    fn predict(&self, request: &PredictionRequest) -> Result<EngineRun, String> {
-        let input = deck::write_deck(request)?;
+impl VoacaplEngine {
+    /// Runs a deck in a fresh folder and parses the output. A failed run
+    /// keeps its folder so the deck and output can be inspected.
+    fn run(&self, input: &str) -> Result<(crate::propagation::Prediction, String), String> {
         let run_dir = self.run_root.join(format!(
             "{}-{}",
             std::process::id(),
             RUN_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
-
-        // A failed run keeps its folder so the deck and output can be inspected.
-        let output = self
-            .runner
-            .run_deck(&input, &run_dir)
-            .map_err(|e| format!("{e} (run folder kept at {})", run_dir.display()))?;
-        let mut prediction = output::parse_output(&output)
-            .map_err(|e| format!("{e} (run folder kept at {})", run_dir.display()))?;
+        let kept = |e: String| format!("{e} (run folder kept at {})", run_dir.display());
+        let output = self.runner.run_deck(input, &run_dir).map_err(kept)?;
+        let prediction = output::parse_output(&output).map_err(kept)?;
         let _ = fs::remove_dir_all(&run_dir);
+        Ok((prediction, output))
+    }
+}
+
+impl PropagationEngine for VoacaplEngine {
+    fn name(&self) -> &str {
+        "voacapl"
+    }
+
+    /// One engine process runs every receiver: starting the process costs far
+    /// more than a circuit does.
+    fn predict_hour_to_many(
+        &self,
+        request: &PredictionRequest,
+        receivers: &[LatLon],
+    ) -> Result<Vec<HourPrediction>, String> {
+        if request.utc_hour.is_none() {
+            return Err("predicting to many receivers needs a single hour".into());
+        }
+        let input = deck::write_deck_for_receivers(request, receivers)?;
+        let (prediction, _) = self.run(&input)?;
+        if prediction.hours.len() != receivers.len() {
+            return Err(format!(
+                "engine returned {} results for {} receivers",
+                prediction.hours.len(),
+                receivers.len()
+            ));
+        }
+        Ok(prediction.hours)
+    }
+
+    fn predict(&self, request: &PredictionRequest) -> Result<EngineRun, String> {
+        let input = deck::write_deck(request)?;
+        let (mut prediction, output) = self.run(&input)?;
 
         // The output prints frequencies to one decimal; restore the requested ones.
         for hour in &mut prediction.hours {

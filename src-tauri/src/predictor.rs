@@ -106,11 +106,11 @@ pub struct PathOverview {
 }
 
 /// A validated request, ready for the engine.
-struct Plan {
-    tx: LatLon,
-    rx: LatLon,
-    ssn: SsnUsed,
-    engine_request: PredictionRequest,
+pub(crate) struct Plan {
+    pub tx: LatLon,
+    pub rx: LatLon,
+    pub ssn: SsnUsed,
+    pub engine_request: PredictionRequest,
 }
 
 impl Plan {
@@ -158,7 +158,7 @@ pub fn predict_overview(
     })
 }
 
-fn join<T>(handle: std::thread::ScopedJoinHandle<'_, Result<T, String>>) -> Result<T, String> {
+pub(crate) fn join<T>(handle: std::thread::ScopedJoinHandle<'_, Result<T, String>>) -> Result<T, String> {
     handle.join().unwrap_or_else(|_| Err("a prediction thread panicked".into()))
 }
 
@@ -289,7 +289,7 @@ fn luf(points: &[SweepPoint], required_snr: f64) -> Option<f64> {
     }
 }
 
-fn plan(request: &PathRequest) -> Result<Plan, String> {
+pub(crate) fn plan(request: &PathRequest) -> Result<Plan, String> {
     let tx = geo::parse_position(&request.tx_position).map_err(|e| format!("Transmitter: {e}"))?;
     let rx = geo::parse_position(&request.rx_position).map_err(|e| format!("Receiver: {e}"))?;
     if !(1..=12).contains(&request.month) {
@@ -333,6 +333,7 @@ fn plan(request: &PathRequest) -> Result<Plan, String> {
         path: if request.long_path { PathKind::Long } else { PathKind::Short },
         year: request.year,
         month: request.month,
+        utc_hour: None,
         ssn: ssn.value,
         frequencies_mhz: HF_BANDS.iter().map(|band| band.mhz).collect(),
         tx_power_watts: request.tx_station.power_watts,

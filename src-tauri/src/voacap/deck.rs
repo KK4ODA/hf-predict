@@ -1,6 +1,7 @@
 //! Writes VOACAP input decks. Cards are fixed-column; the layouts follow the
 //! engine's own `read` formats.
 
+use crate::geo::LatLon;
 use crate::propagation::{Antenna, Coefficients, PathKind, PredictionRequest};
 
 const MAX_FREQUENCIES: usize = 11;
@@ -8,6 +9,19 @@ const ANTENNA_FILE_WIDTH: usize = 21;
 const LABEL_WIDTH: usize = 20;
 
 pub fn write_deck(request: &PredictionRequest) -> Result<String, String> {
+    write_deck_for_receivers(request, &[request.rx])
+}
+
+/// One deck that runs the same circuit to several receivers in turn. The
+/// engine allows only the CIRCUIT card to change between runs, so every
+/// receiver shares the request's antennas and their bearings.
+pub fn write_deck_for_receivers(
+    request: &PredictionRequest,
+    receivers: &[LatLon],
+) -> Result<String, String> {
+    let Some((first, rest)) = receivers.split_first() else {
+        return Err("a deck needs at least one receiver".into());
+    };
     let frequencies = &request.frequencies_mhz;
     if frequencies.is_empty() || frequencies.len() > MAX_FREQUENCIES {
         return Err(format!("a deck takes 1 to {MAX_FREQUENCIES} frequencies, got {}", frequencies.len()));
@@ -21,6 +35,11 @@ pub fn write_deck(request: &PredictionRequest) -> Result<String, String> {
     if request.tx_power_watts <= 0.0 {
         return Err("transmit power must be positive".into());
     }
+    let (first_hour, last_hour) = match request.utc_hour {
+        None => (1, 24),
+        Some(hour) if (1..=24).contains(&hour) => (hour, hour),
+        Some(hour) => return Err(format!("hour {hour} is not 1-24")),
+    };
 
     let coefficients = match request.coefficients {
         Coefficients::Ccir => "CCIR",
@@ -34,18 +53,23 @@ pub fn write_deck(request: &PredictionRequest) -> Result<String, String> {
     };
     let (tx_lat, tx_ns) = hemisphere(request.tx.lat, 'N', 'S');
     let (tx_lon, tx_ew) = hemisphere(request.tx.lon, 'E', 'W');
-    let (rx_lat, rx_ns) = hemisphere(request.rx.lat, 'N', 'S');
-    let (rx_lon, rx_ew) = hemisphere(request.rx.lon, 'E', 'W');
+    let circuit = |rx: &LatLon| {
+        let (rx_lat, rx_ns) = hemisphere(rx.lat, 'N', 'S');
+        let (rx_lon, rx_ew) = hemisphere(rx.lon, 'E', 'W');
+        format!(
+            "CIRCUIT   {tx_lat:5.2}{tx_ns}{tx_lon:9.2}{tx_ew}{rx_lat:9.2}{rx_ns}{rx_lon:9.2}{rx_ew}  {path}{long_flag:6}"
+        )
+    };
     let mut frequency_card = String::from("FREQUENCY ");
     for i in 0..MAX_FREQUENCIES {
         frequency_card.push_str(&format!("{:5.2}", frequencies.get(i).copied().unwrap_or(0.0)));
     }
 
-    let cards = [
+    let mut cards = vec![
         "COMMENT    Any VOACAP default cards may be placed in the file: VOACAP.DEF".to_string(),
         "LINEMAX      55       number of lines-per-page".to_string(),
         format!("COEFFS    {coefficients}"),
-        "TIME          1   24    1    1".to_string(),
+        format!("TIME      {first_hour:5}{last_hour:5}{:5}{:5}", 1, 1),
         format!("MONTH     {:5}{:5.2}", request.year, request.month as f64),
         format!("SUNSPOT   {:4.0}.", request.ssn),
         format!(
@@ -54,9 +78,7 @@ pub fn write_deck(request: &PredictionRequest) -> Result<String, String> {
             request.rx_name,
             w = LABEL_WIDTH
         ),
-        format!(
-            "CIRCUIT   {tx_lat:5.2}{tx_ns}{tx_lon:9.2}{tx_ew}{rx_lat:9.2}{rx_ns}{rx_lon:9.2}{rx_ew}  {path}{long_flag:6}"
-        ),
+        circuit(first),
         format!(
             "SYSTEM    {:4.0}.{:4.0}.{:5.2}{:4.0}.{:5.1}{:5.2}{:5.2}",
             1.0,
@@ -75,8 +97,12 @@ pub fn write_deck(request: &PredictionRequest) -> Result<String, String> {
         frequency_card,
         "METHOD       30    0".to_string(),
         "EXECUTE".to_string(),
-        "QUIT".to_string(),
     ];
+    for rx in rest {
+        cards.push(circuit(rx));
+        cards.push("EXECUTE".to_string());
+    }
+    cards.push("QUIT".to_string());
 
     let mut deck = String::new();
     for card in cards {
@@ -122,6 +148,7 @@ pub(crate) mod tests {
             path: PathKind::Short,
             year: 1994,
             month: 6,
+            utc_hour: None,
             ssn: 100.0,
             frequencies_mhz: vec![6.07, 7.20, 9.70, 11.85, 13.70, 15.35, 17.73, 21.65, 25.89],
             tx_power_watts: 500_000.0,
@@ -148,6 +175,31 @@ pub(crate) mod tests {
         request.path = PathKind::Long;
         let deck = write_deck(&request).unwrap();
         assert!(deck.contains("CIRCUIT   33.87S   151.21E    44.90N    20.50E  L     1\n"), "{deck}");
+    }
+
+    #[test]
+    fn repeats_only_the_circuit_for_more_receivers() {
+        let request = reference_request();
+        let second = LatLon { lat: -33.87, lon: 151.21 };
+        let deck = write_deck_for_receivers(&request, &[request.rx, second]).unwrap();
+        let single = write_deck(&request).unwrap();
+        let extra = "CIRCUIT   35.80N     5.90W    33.87S   151.21E  S     0
+EXECUTE
+QUIT
+";
+        assert_eq!(deck, single.replace("QUIT
+", extra));
+        assert!(write_deck_for_receivers(&request, &[]).is_err());
+    }
+
+    #[test]
+    fn writes_a_single_hour() {
+        let mut request = reference_request();
+        request.utc_hour = Some(14);
+        assert!(write_deck(&request).unwrap().contains("TIME         14   14    1    1
+"));
+        request.utc_hour = Some(0);
+        assert!(write_deck(&request).is_err());
     }
 
     #[test]

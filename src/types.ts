@@ -119,3 +119,25 @@ export type PathDetail = {
 };
 
 export type PathOverview = { short: PathDetail; long: PathDetail };
+
+export type LatLon = { lat: number; lon: number };
+
+export type CoverageCell = {
+  lat: number;
+  lon: number;
+  distanceKm: number;
+  /** One value per band, in `Coverage.bands` order. */
+  reliability: number[];
+  snrDb: number[];
+};
+
+export type Coverage = {
+  tx: LatLon;
+  utcHour: number;
+  latStepDeg: number;
+  lonStepDeg: number;
+  ssn: SsnUsed;
+  requiredSnrDbHz: number;
+  bands: Band[];
+  cells: CoverageCell[];
+};
