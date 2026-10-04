@@ -1,0 +1,93 @@
+name: release
+
+# Pushing a tag such as v0.1.0 builds installers for all three systems,
+# publishes them as a GitHub Release, and uploads latest.json, which the
+# in-app updater reads.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            shell: bash
+          - os: macos-latest
+            target: macos-arm64
+            shell: bash
+          - os: windows-latest
+            target: windows-x64
+            shell: msys2 {0}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match app version
+        shell: bash
+        run: |
+          version="v$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match app version $version"
+            exit 1
+          fi
+
+      - name: Toolchain (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: git make autoconf automake mingw-w64-ucrt-x86_64-gcc-fortran
+
+      - name: Toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran autoconf automake \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev
+
+      - name: Toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gcc autoconf automake
+
+      - name: Build engine
+        run: sh engines/voacapl/build.sh
+
+      - name: Engine reference cases
+        run: sh tests/engine/run-reference.sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        shell: bash
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: hf-predict ${{ github.ref_name }}
+          releaseBody: Installers for Windows, Linux and macOS are attached below.
+          releaseDraft: false
+          prerelease: false

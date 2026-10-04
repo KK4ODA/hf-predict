@@ -1,0 +1,16 @@
+COMMENT    Regional NVIS path, 100 W, isotropic antennas, low solar activity
+LINEMAX      55       number of lines-per-page
+COEFFS    CCIR
+TIME          1   24    1    1
+MONTH      2026 1.00
+SUNSPOT     20.
+LABEL     ATLANTA             SAVANNAH
+CIRCUIT   33.75N    84.39W    32.08N    81.09W  S     0
+SYSTEM       1. 145. 3.00  90. 43.0 3.00 0.10
+FPROB      1.00 1.00 1.00 0.00
+ANTENNA       1    1    2   30     0.000[default/isotrope     ]  0.0    0.1000
+ANTENNA       2    2    2   30     0.000[default/isotrope     ]  0.0    0.0000
+FREQUENCY  3.60 5.36 7.10 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+METHOD       30    0
+EXECUTE
+QUIT

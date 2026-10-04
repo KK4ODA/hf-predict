@@ -9,7 +9,7 @@ Facts in this document were checked against primary sources (project repositorie
 | Topic | Recommendation |
 |---|---|
 | Propagation engine | Run real VOACAP locally as a subprocess (`voacapl`, the maintained port of the NTIA Fortran code), behind a `PropagationEngine` interface. |
-| Windows engine | Unproven: nobody appears to have built `voacapl` natively on Windows. A build spike is the first task of the project. Fallbacks are ranked in section 1. |
+| Windows engine | Resolved in Phase 0: `voacapl` builds natively on Windows and its output is identical to the Linux build (section 1). |
 | Second engine | ITURHFProp (ITU-R P.533) later and optional. Its licence grant is narrow, its data is about 138 MB, and a macOS build is unverified. |
 | Solar input | VOACAP consumes only the monthly smoothed sunspot number. Bundle a NOAA SWPC observed and predicted table. Everything else (Kp, A, flux, X-ray) is operator awareness, not model input. |
 | FT8 observations | Listen to WSJT-X's UDP stream over multicast. Observe-only first. No decoder of our own until there is a strong reason. |
@@ -24,7 +24,18 @@ Facts in this document were checked against primary sources (project repositorie
 
 ## 1. VOACAP local-execution feasibility
 
-**Verdict: feasible on Linux and macOS today; Windows needs a build spike before anything else is built on it.**
+**Verdict: feasible on all three systems. Confirmed by the Phase 0 build spike.**
+
+### Phase 0 results (2026-10-04)
+
+- **One script builds the engine on Linux x64, macOS arm64 and Windows x64** (`engines/voacapl/build.sh`; MinGW-w64 gfortran under MSYS2 on Windows). The Fortran runtime is linked in, so no compiler is needed on the user's machine.
+- **Agreement with Windows VOACAP 16.1207.** On the reference case shipped with `voacapl`, 5,287 of 5,431 numeric fields are identical, 143 differ by one unit in the last printed digit, and one (a virtual height, 398 against 400 km) differs by 0.5%. Nothing differs by more.
+- **Agreement between systems.** Windows and Linux outputs are identical on all four test decks. macOS arm64 differs from Linux in at most 7 last-digit fields per deck.
+- **Paths.** Folders with spaces work. A data or run folder path beyond about 128 characters fails with a clear error. The data tree can be named by a relative path, so the app runs the engine from the engine folder and only the run folder's absolute path is subject to the limit.
+- **Licence.** The GPL-3 option parser is linked only into the two `dst` utilities, which the build leaves out. The engine binary contains public-domain and CC0 code only.
+- **Not done.** Only one test deck has a Windows VOACAP reference output. More need a Windows VOACAP installation to generate them. The alternative engines were not evaluated, since no fallback is needed.
+
+The feasibility notes below are as written before the spike.
 
 ### What exists
 
@@ -99,7 +110,7 @@ Facts in this document were checked against primary sources (project repositorie
 |---|---|---|---|
 | VOACAP engine source (NTIA/ITS) | Bundle compiled binary and data | Not subject to US copyright; ITS grants use, copy, modify, redistribute | Ship both NTIA notices verbatim; no warranty; do not imply endorsement |
 | `voacapl` changes | Bundle | CC0 | Credit James Watson (courtesy) |
-| `dst2csv`, `dst2ascii`, `f90getopt.f90` in `voacapl` | **Leave out** | GPL-3 | Check whether `f90getopt.f90` is linked into the main binary before bundling. If it is, the binary is GPL-3 and we must offer its source. Running it as a subprocess does not affect our own licence. |
+| `dst2csv`, `dst2ascii`, `f90getopt.f90` in `voacapl` | **Leave out** | GPL-3 | Confirmed in Phase 0: `f90getopt.f90` is linked only into the two `dst` utilities, not the engine. The build script removes them. |
 | HFWin32 installer, `SALFLIBC.DLL`, GUI | **Do not redistribute** | Package help says most programs cannot be distributed | Detect a user install only |
 | DVOACAP | Optional bundle | MIT | Include licence text |
 | `hfcast-engine` | Optional link | Apache-2.0 | Include licence and notices |
@@ -639,8 +650,8 @@ Maps are drawn from bundled vector data. No tile server is needed.
 
 | # | Risk | Mitigation |
 |---|---|---|
-| 1 | `voacapl` has never been built natively on Windows | First spike. Four ranked fallbacks (section 1). |
-| 2 | Engine path limits collide with default data directories | Short space-free data location; start-up self-test. |
+| 1 | `voacapl` has never been built natively on Windows | **Resolved in Phase 0**: it builds and matches the Linux build exactly. |
+| 2 | Engine path limits collide with default data directories | **Mostly resolved in Phase 0**: spaces work; the engine runs from its own folder with a relative data path. A run folder path beyond about 128 characters still fails, with a clear error. |
 | 3 | Sunspot scale mismatch (about one band of error) | Explicit setting; documented default; later informed by our own history. |
 | 4 | A third-party engine (`hfcast`, DVOACAP) differs from VOACAP | Golden-case harness decides; engine name shown with every prediction. |
 | 5 | WSJT-X protocol drift (new types in 3.2) and version differences in decode timing | Tolerant parser; fixtures per version; our own dial-change guard. |
@@ -650,7 +661,7 @@ Maps are drawn from bundled vector data. No tile server is needed.
 | 9 | NOAA endpoints change (they did in March 2026) | Versioned, tolerant parsers; saved fixtures; failure is visible, not silent. |
 | 10 | FT8 evidence is biased by who is on the air | Terminology, slot counts, baselines; never "closed". |
 | 11 | GPL code entering the build by accident | Section 3 list; CI licence check; GPL programs only as separate processes. |
-| 12 | Unsigned installers trigger Windows and macOS warnings | Builds will be signed (decided, section 19). |
+| 12 | Unsigned installers trigger Windows and macOS warnings | Accepted for now; signing deferred (section 19). Install instructions will explain the warnings. |
 | 13 | Windows web view missing on older offline machines | Ship the offline web-view installer inside ours. |
 | 14 | `rigctld` security history | Bind to loopback; require 4.7.2 or later. |
 | 15 | ITU licence wording too narrow to bundle ITURHFProp | Ask ITU-R SG3; keep it optional. |
@@ -700,7 +711,7 @@ Changes from the proposed order, and why:
 **Decided by the project owner (2026-10-04)**
 
 1. **App licence: Apache-2.0.** It keeps a later move to GPL open if GPL decoder code is ever linked.
-2. **Code signing: yes.** Windows and macOS builds will be signed. The owner obtains the certificates before the first public release.
+2. **Code signing: deferred.** No certificates for now, so early builds are unsigned and Windows and macOS will show install warnings. Update files are still signed with the project's own free updater key, which is separate from operating-system code signing.
 3. **UI stack: Tauri 2.**
 4. **Sunspot scale default:** current published (new-scale) values, as VOACAP Online does, with an advanced setting (section 4).
 5. **First test radio: Yaesu FTDX10.** Its Hamlib backend is expected to be the Yaesu one that issues a band-select on band changes (unverified), so rule 3 in section 10 applies directly.
@@ -713,7 +724,6 @@ Changes from the proposed order, and why:
 **To verify**
 
 - VOACAP's frequency range for 160 m.
-- Whether `f90getopt.f90` is linked into `voacapl`.
 - Multicast on macOS loopback.
 - The flux-to-sunspot regression.
 - Saildocs handling of a small text file from GitHub.

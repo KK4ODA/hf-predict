@@ -1,0 +1,42 @@
+Date: Sun, 04 Oct 2026 17:19:00 +0000
+From: SERVICE@winlink.org
+Subject: INQUIRY - https://services.swpc.noaa.gov/text/wwv.txt
+To: N0CALL@winlink.org
+Message-ID: FIXTURE00WWV
+X-Source: SYSTEM
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="boundaryYkQgMg=="
+
+--boundaryYkQgMg==
+Content-Type: text/plain; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+:Product: Geophysical Alert Message wwv.txt
+:Issued: 2026 Oct 04 1505 UTC
+# Prepared by the US Dept. of Commerce, NOAA, Space Weather Prediction Cent=
+er
+#
+#          Geophysical Alert Message
+#
+Solar-terrestrial indices for 03 October follow.
+Solar flux 93 and estimated planetary A-index 7.
+The estimated planetary K-index at 1500 UTC on 04 October was 4.67.
+
+Space weather for the past 24 hours has been minor.
+Geomagnetic storms reaching the G1 level occurred.
+
+Space weather for the next 24 hours is predicted to be minor.
+Geomagnetic storms reaching the G1 level are expected.
+
+
+=3D=3D=3D=3D=3D
+Thanks for using Winlink, an Amateur Radio Safety Foundation=20
+sponsored project. For information about Winlink or to manage
+your Winlink account please visit:=20
+https://www.winlink.org
+
+For information on how you can help support Winlink and other
+Amateur Radio Safety Foundation projects please visit:
+https://www.arsfi.org
+
+--boundaryYkQgMg==--

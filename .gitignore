@@ -10,3 +10,10 @@ desktop.ini
 
 # Local settings
 .claude/settings.local.json
+
+# Local build workspace
+.work/
+
+# App build output
+node_modules/
+dist/
