@@ -1,0 +1,79 @@
+Date: Sun, 04 Oct 2026 17:19:00 +0000
+From: SERVICE@winlink.org
+Subject: INQUIRY - https://services.swpc.noaa.gov/text/3-day-forecast.txt
+To: N0CALL@winlink.org
+Message-ID: FIXTURE03DAY
+X-Source: SYSTEM
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="boundaryJ+s64w=="
+
+--boundaryJ+s64w==
+Content-Type: text/plain; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+:Product: 3-Day Forecast
+:Issued: 2026 Oct 04 1230 UTC
+# Prepared by the U.S. Dept. of Commerce, NOAA, Space Weather Prediction Ce=
+nter
+#
+A. NOAA Geomagnetic Activity Observation and Forecast
+
+The greatest observed 3 hr Kp over the past 24 hours was 5 (NOAA Scale
+G1).
+The greatest expected 3 hr Kp for Oct 04-Oct 06 2026 is 5.00 (NOAA Scale
+G1).
+
+NOAA Kp index breakdown Oct 04-Oct 06 2026
+
+             Oct 04       Oct 05       Oct 06
+00-03UT       3.00         3.33         3.33    =20
+03-06UT       3.33         4.33         3.67    =20
+06-09UT       4.33         3.33         3.00    =20
+09-12UT       5.00 (G1)    3.00         3.00    =20
+12-15UT       4.00         2.67         2.33    =20
+15-18UT       3.67         1.67         2.00    =20
+18-21UT       4.67 (G1)    2.00         2.00    =20
+21-00UT       3.00         3.00         1.67    =20
+
+Rationale: G1 (Minor) geomagnetic storms are expected on 04 Oct due to
+influence from a positive polarity coronal hole.
+
+B. NOAA Solar Radiation Activity Observation and Forecast
+
+Solar radiation, as observed by NOAA GOES-18 over the past 24 hours, was
+below S-scale storm level thresholds.
+
+Solar Radiation Storm Forecast for Oct 04-Oct 06 2026
+
+              Oct 04  Oct 05  Oct 06
+S1 or greater    1%      1%      1%
+
+Rationale: No S1 (Minor) or greater solar radiation storms are expected.
+No significant active region activity favorable for radiation storm
+production is forecast.
+
+C. NOAA Radio Blackout Activity and Forecast
+
+No radio blackouts were observed over the past 24 hours.
+
+Radio Blackout Forecast for Oct 04-Oct 06 2026
+
+              Oct 04        Oct 05        Oct 06
+R1-R2            5%            5%            5%
+R3 or greater    1%            1%            1%
+
+Rationale: No R1 (Minor) or greater radio blackouts are expected.  No
+significant active region flare activity is forecast.
+
+
+=3D=3D=3D=3D=3D
+Thanks for using Winlink, an Amateur Radio Safety Foundation=20
+sponsored project. For information about Winlink or to manage
+your Winlink account please visit:=20
+https://www.winlink.org
+
+For information on how you can help support Winlink and other
+Amateur Radio Safety Foundation projects please visit:
+https://www.arsfi.org
+
+--boundaryJ+s64w==--

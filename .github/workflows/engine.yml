@@ -1,0 +1,71 @@
+name: engine
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: voacapl ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            shell: bash
+          - os: macos-latest
+            target: macos-arm64
+            shell: bash
+          - os: windows-latest
+            target: windows-x64
+            shell: msys2 {0}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: git make autoconf automake mingw-w64-ucrt-x86_64-gcc-fortran
+
+      - name: Toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gfortran autoconf automake
+
+      - name: Toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gcc autoconf automake
+
+      - name: Build engine
+        run: sh engines/voacapl/build.sh
+
+      - name: Reference cases
+        run: sh tests/engine/run-reference.sh
+
+      - name: Upload engine and outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-${{ matrix.target }}
+          include-hidden-files: true
+          path: |
+            .work/engine/bin
+            .work/reference-out
+
+  compare:
+    name: cross-platform agreement
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: sh tests/engine/compare-platforms.sh artifacts

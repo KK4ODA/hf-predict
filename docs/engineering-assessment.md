@@ -650,7 +650,7 @@ Maps are drawn from bundled vector data. No tile server is needed.
 | 9 | NOAA endpoints change (they did in March 2026) | Versioned, tolerant parsers; saved fixtures; failure is visible, not silent. |
 | 10 | FT8 evidence is biased by who is on the air | Terminology, slot counts, baselines; never "closed". |
 | 11 | GPL code entering the build by accident | Section 3 list; CI licence check; GPL programs only as separate processes. |
-| 12 | Unsigned installers trigger Windows and macOS warnings | Builds will be signed (decided, section 19). |
+| 12 | Unsigned installers trigger Windows and macOS warnings | Accepted for now; signing deferred (section 19). Install instructions will explain the warnings. |
 | 13 | Windows web view missing on older offline machines | Ship the offline web-view installer inside ours. |
 | 14 | `rigctld` security history | Bind to loopback; require 4.7.2 or later. |
 | 15 | ITU licence wording too narrow to bundle ITURHFProp | Ask ITU-R SG3; keep it optional. |
@@ -700,7 +700,7 @@ Changes from the proposed order, and why:
 **Decided by the project owner (2026-10-04)**
 
 1. **App licence: Apache-2.0.** It keeps a later move to GPL open if GPL decoder code is ever linked.
-2. **Code signing: yes.** Windows and macOS builds will be signed. The owner obtains the certificates before the first public release.
+2. **Code signing: deferred.** No certificates for now, so early builds are unsigned and Windows and macOS will show install warnings. Update files are still signed with the project's own free updater key, which is separate from operating-system code signing.
 3. **UI stack: Tauri 2.**
 4. **Sunspot scale default:** current published (new-scale) values, as VOACAP Online does, with an advanced setting (section 4).
 5. **First test radio: Yaesu FTDX10.** Its Hamlib backend is expected to be the Yaesu one that issues a band-select on band changes (unverified), so rule 3 in section 10 applies directly.
