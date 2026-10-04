@@ -10,7 +10,7 @@ The application is designed to stay useful with little or no Internet connectivi
 
 ## Status
 
-Pre-implementation. The engineering assessment (engine selection, licensing, WSJT-X integration, CAT architecture, roadmap) is in progress and will be published in `docs/`.
+Pre-implementation. The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture and the roadmap.
 
 ## License
 
