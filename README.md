@@ -10,7 +10,28 @@ The application is designed to stay useful with little or no Internet connectivi
 
 ## Status
 
-Pre-implementation. The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture and the roadmap.
+Early development. Installers are on the [Releases](https://github.com/KK4ODA/hf-predict/releases) page; builds are not code-signed yet, so Windows and macOS warn on install.
+
+Working now:
+
+- Offline point-to-point prediction for the 80 m to 10 m amateur bands, hour by hour, using the real VOACAP engine bundled with the app.
+- Station presets (power, antenna, local noise), saved stations and saved locations.
+- A bundled NOAA smoothed sunspot table, so no network is needed.
+- In-app update check.
+
+The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture and the roadmap.
+
+## Building
+
+Needs Rust, Node.js, gfortran, make, autoconf and automake. On Windows, run the first command in an MSYS2 UCRT64 shell.
+
+```sh
+sh engines/voacapl/build.sh      # builds the VOACAP engine into .work/engine
+npm install
+npm run tauri dev                # or: npm run tauri build
+```
+
+Tests: `sh tests/engine/run-reference.sh` and `cargo test --manifest-path src-tauri/Cargo.toml`.
 
 ## License
 

@@ -1,48 +1,74 @@
 pub mod engine;
+pub mod geo;
+pub mod predictor;
+pub mod propagation;
+pub mod solar;
+pub mod station;
+pub mod userdata;
+pub mod voacap;
 
+use std::path::PathBuf;
+
+use serde::Serialize;
 use tauri::{path::BaseDirectory, Manager};
 
-/// Deck used to prove the bundled engine runs on this machine.
-const SELF_TEST_DECK: &str = include_str!("../../tests/engine/cases/ham01-short.dat");
+use predictor::{PathPrediction, PathRequest};
+use station::{Band, Choice, Mode, StationProfile};
+use userdata::UserData;
 
-#[derive(serde::Serialize)]
+/// Everything the form offers, so the lists live in one place.
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct EngineSelfTest {
-    /// Engine name and version as printed in its output.
-    banner: String,
-    /// The circuit description and the first hour's prediction table.
-    first_hour: String,
+struct Options {
+    presets: Vec<StationProfile>,
+    antennas: Vec<Choice<&'static str>>,
+    noise_levels: Vec<Choice<f64>>,
+    modes: Vec<Choice<Mode>>,
+    bands: Vec<Band>,
+}
+
+#[tauri::command]
+fn options() -> Options {
+    Options {
+        presets: station::presets(),
+        antennas: station::antennas(),
+        noise_levels: station::noise_levels(),
+        modes: station::modes(),
+        bands: station::HF_BANDS.to_vec(),
+    }
 }
 
 #[tauri::command(async)]
-fn engine_self_test(app: tauri::AppHandle) -> Result<EngineSelfTest, String> {
-    let root = app
+fn predict_path(app: tauri::AppHandle, request: PathRequest) -> Result<PathPrediction, String> {
+    let engine_root = app
         .path()
         .resolve("engine", BaseDirectory::Resource)
         .map_err(|e| e.to_string())?;
-    let run_dir = app
+    let run_root = app
         .path()
         .app_local_data_dir()
         .map_err(|e| e.to_string())?
         .join("run");
+    let engine = voacap::VoacaplEngine::new(&engine_root, &run_root)?;
+    predictor::predict_path(&engine, &request)
+}
 
-    let output = engine::Engine::at(&root)?.run_deck(SELF_TEST_DECK, &run_dir)?;
-    let lines: Vec<&str> = output.lines().collect();
+fn user_data_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("userdata.json"))
+}
 
-    let page = lines
-        .iter()
-        .position(|l| l.contains("PAGE   1"))
-        .ok_or("engine output has no prediction page")?;
-    let end = lines[page..]
-        .iter()
-        .position(|l| l.trim_end().ends_with("SNRxx"))
-        .map(|i| page + i + 1)
-        .ok_or("engine output has no prediction table")?;
+#[tauri::command]
+fn load_user_data(app: tauri::AppHandle) -> Result<UserData, String> {
+    userdata::load(&user_data_file(&app)?)
+}
 
-    Ok(EngineSelfTest {
-        banner: lines[page].trim().to_string(),
-        first_hour: lines[page + 1..end].join("\n"),
-    })
+#[tauri::command]
+fn save_user_data(app: tauri::AppHandle, data: UserData) -> Result<(), String> {
+    userdata::save(&user_data_file(&app)?, &data)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -50,7 +76,28 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![engine_self_test])
+        .invoke_handler(tauri::generate_handler![
+            options,
+            predict_path,
+            load_user_data,
+            save_user_data
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Helpers for tests that run the real engine built by `engines/voacapl/build.sh`.
+#[cfg(test)]
+pub(crate) mod testing {
+    use std::path::PathBuf;
+
+    pub fn engine_root() -> PathBuf {
+        std::env::var_os("HFP_ENGINE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.work/engine"))
+    }
+
+    pub fn scratch_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("hfp-{name}-{}", std::process::id()))
+    }
 }
