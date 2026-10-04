@@ -57,7 +57,7 @@ The feasibility notes below are as written before the spike.
 - **Path limits.** Behaviour is described as unpredictable if the `itshfbc` path contains spaces or exceeds 52 characters. A third-party report puts an internal buffer at 128 characters. Default data directories on Windows (`C:\Users\First Last\…`) and macOS (`~/Library/Application Support/…`) can both contain spaces. The app must place the engine data in a short, space-free location and test for this at start-up.
 - **Open bugs (September 2026).** `--silent` is not recognised (use `-s`). `batch` mode silently processes nothing on case-sensitive file systems. We avoid `batch` and loop in our own code.
 - **Unvalidated outputs.** The VOACAP documentation says only Methods 13, 14, 15, 20, 21, 22 and 25 were benchmarked; the HPF/FOT/LUF methods were never tested. Proposal: derive those quantities ourselves from a frequency sweep (section 4) instead of presenting Method 9 output as authoritative.
-- **Frequency range.** VOACAP is a 2–30 MHz model **(to verify)**. 160 m and 6 m would then be observation-only bands.
+- **Frequency range.** VOACAP is a 2–30 MHz model. Tested in Phase 1: the engine accepts 1.84 MHz and returns numbers, but parts of its code clamp frequencies to 2–30 MHz, so those numbers are outside the model's range. The app treats 160 m and 6 m as observation-only bands.
 - **Sporadic E** is off by default in VOACAP because that part of the model is not fully tested. Unexpected high-band openings are exactly what the FT8 measurement side is for.
 
 ### Windows options, in order of preference
@@ -723,7 +723,6 @@ Changes from the proposed order, and why:
 
 **To verify**
 
-- VOACAP's frequency range for 160 m.
 - Multicast on macOS loopback.
 - The flux-to-sunspot regression.
 - Saildocs handling of a small text file from GitHub.

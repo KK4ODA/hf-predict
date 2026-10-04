@@ -54,6 +54,8 @@ rm -rf "$OUT"
 mkdir -p "$OUT/bin"
 cp "$STAGE/engine/bin/voacapl$EXE" "$OUT/bin/"
 cp -R "$STAGE/engine/share/voacapl/itshfbc" "$OUT/itshfbc"
+# hf-predict's own antenna definitions, used by the station presets.
+cp -R "$ROOT/engines/voacapl/antennas/hfp" "$OUT/itshfbc/antennas/hfp"
 
 echo "Runtime libraries the engine still loads:"
 case "$(uname -s)" in
