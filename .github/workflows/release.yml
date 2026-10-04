@@ -1,8 +1,9 @@
 name: release
 
-# Pushing a tag such as v0.1.0 builds installers for all three systems,
-# publishes them as a GitHub Release, and uploads latest.json, which the
-# in-app updater reads.
+# Pushing a tag such as v0.1.0 builds installers for all three systems and
+# uploads them, with latest.json for the in-app updater, to a draft GitHub
+# Release. The draft is published only after every system has uploaded, so
+# installed copies never see a release that lacks their platform.
 
 on:
   push:
@@ -89,5 +90,15 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: hf-predict ${{ github.ref_name }}
           releaseBody: Installers for Windows, Linux and macOS are attached below.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
