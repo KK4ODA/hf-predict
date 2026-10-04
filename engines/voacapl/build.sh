@@ -16,9 +16,12 @@ SRC="$WORK/voacapl"
 STAGE="$WORK/stage"
 OUT="${OUT:-$WORK/engine}"
 
+# Link the Fortran runtime into the executable so it runs on machines with no
+# compiler installed. macOS cannot link fully statically.
 case "$(uname -s)" in
   MINGW*|MSYS*) EXE=.exe; ENGINE_LDFLAGS="-static" ;;
-  *)            EXE=;     ENGINE_LDFLAGS="" ;;
+  Darwin)       EXE=;     ENGINE_LDFLAGS="-static-libgfortran -static-libgcc" ;;
+  *)            EXE=;     ENGINE_LDFLAGS="-static" ;;
 esac
 
 mkdir -p "$WORK"
@@ -48,6 +51,12 @@ rm -rf "$OUT"
 mkdir -p "$OUT/bin"
 cp "$STAGE/engine/bin/voacapl$EXE" "$OUT/bin/"
 cp -R "$STAGE/engine/share/voacapl/itshfbc" "$OUT/itshfbc"
+
+echo "Runtime libraries the engine still loads:"
+case "$(uname -s)" in
+  Darwin) otool -L "$OUT/bin/voacapl" ;;
+  *)      ldd "$OUT/bin/voacapl$EXE" || true ;;
+esac
 
 echo "Engine built: $OUT/bin/voacapl$EXE"
 echo "Data tree:    $OUT/itshfbc"

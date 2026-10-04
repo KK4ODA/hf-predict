@@ -12,9 +12,12 @@ RESULTS="$ROOT/.work/reference-out"
 CASES="$ROOT/tests/engine/cases"
 COMPARE="$ROOT/tests/engine/compare-out.awk"
 
+# Decks run in a scratch run directory so the built engine tree stays clean.
+RUN="$RESULTS/run"
+
 case "$(uname -s)" in
-  MINGW*|MSYS*) EXE=.exe; ITSHFBC="$(cygpath -w "$ENGINE/itshfbc")" ;;
-  *)            EXE=;     ITSHFBC="$ENGINE/itshfbc" ;;
+  MINGW*|MSYS*) EXE=.exe; ITSHFBC="$(cygpath -w "$ENGINE/itshfbc")"; RUN_ARG="$(cygpath -w "$RUN")" ;;
+  *)            EXE=;     ITSHFBC="$ENGINE/itshfbc";                 RUN_ARG="$RUN" ;;
 esac
 
 # Windows VOACAP prints antenna paths in upper case with backslashes, and
@@ -25,27 +28,26 @@ normalise() {
 }
 
 rm -rf "$RESULTS"
-mkdir -p "$RESULTS"
+mkdir -p "$RUN"
 failed=0
 
 for deck in "$CASES"/*.dat; do
   name="$(basename "$deck" .dat)"
-  cp "$deck" "$ENGINE/itshfbc/run/$name.dat"
-  rm -f "$ENGINE/itshfbc/run/$name.out"
+  cp "$deck" "$RUN/$name.dat"
 
-  if ! "$ENGINE/bin/voacapl$EXE" -s "$ITSHFBC" "$name.dat" "$name.out" \
+  if ! "$ENGINE/bin/voacapl$EXE" -s "--run-dir=$RUN_ARG" "$ITSHFBC" "$name.dat" "$name.out" \
        > "$RESULTS/$name.log" 2>&1; then
     echo "FAIL $name: engine exited with an error (see $RESULTS/$name.log)"
     failed=1
     continue
   fi
-  if [ ! -s "$ENGINE/itshfbc/run/$name.out" ]; then
+  if [ ! -s "$RUN/$name.out" ]; then
     echo "FAIL $name: engine produced no output (see $RESULTS/$name.log)"
     failed=1
     continue
   fi
 
-  cp "$ENGINE/itshfbc/run/$name.out" "$RESULTS/$name.out"
+  cp "$RUN/$name.out" "$RESULTS/$name.out"
   normalise "$RESULTS/$name.out" > "$RESULTS/$name.actual.norm"
 
   if [ ! -f "$CASES/$name.out" ]; then

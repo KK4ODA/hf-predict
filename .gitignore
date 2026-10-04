@@ -13,3 +13,7 @@ desktop.ini
 
 # Local build workspace
 .work/
+
+# App build output
+node_modules/
+dist/

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "hf-predict",
+  "version": "0.1.0",
+  "identifier": "io.github.kk4oda.hfpredict",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "hf-predict",
+        "width": 1000,
+        "height": 720
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../.work/engine/": "engine/"
+    },
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMwNTA4QUY1NDNFOEQzNDkKUldSSjAraEQ5WXBRTUVRV2xJNUlCZCttMmNkOUtrMTc2cXlaZi9pSzVoYTFJZ05sNDZZclRYUngK",
+      "endpoints": [
+        "https://github.com/KK4ODA/hf-predict/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

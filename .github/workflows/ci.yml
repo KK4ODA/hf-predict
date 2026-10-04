@@ -1,4 +1,4 @@
-name: engine
+name: ci
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: voacapl ${{ matrix.target }}
+    name: ${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +37,10 @@ jobs:
 
       - name: Toolchain (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y gfortran autoconf automake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran autoconf automake \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev
 
       - name: Toolchain (macOS)
         if: runner.os == 'macOS'
@@ -46,8 +49,25 @@ jobs:
       - name: Build engine
         run: sh engines/voacapl/build.sh
 
-      - name: Reference cases
+      - name: Engine reference cases
         run: sh tests/engine/run-reference.sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build frontend
+        shell: bash
+        run: npm ci && npm run build
+
+      - name: App tests
+        shell: bash
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Upload engine and outputs
         if: always()
