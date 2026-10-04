@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::{path::BaseDirectory, Manager};
 
-use predictor::{PathPrediction, PathRequest};
+use predictor::{PathOverview, PathRequest};
 use station::{Band, Choice, Mode, StationProfile};
 use userdata::UserData;
 
@@ -39,7 +39,7 @@ fn options() -> Options {
 }
 
 #[tauri::command(async)]
-fn predict_path(app: tauri::AppHandle, request: PathRequest) -> Result<PathPrediction, String> {
+fn predict_overview(app: tauri::AppHandle, request: PathRequest) -> Result<PathOverview, String> {
     let engine_root = app
         .path()
         .resolve("engine", BaseDirectory::Resource)
@@ -50,7 +50,7 @@ fn predict_path(app: tauri::AppHandle, request: PathRequest) -> Result<PathPredi
         .map_err(|e| e.to_string())?
         .join("run");
     let engine = voacap::VoacaplEngine::new(&engine_root, &run_root)?;
-    predictor::predict_path(&engine, &request)
+    predictor::predict_overview(&engine, &request)
 }
 
 fn user_data_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -78,7 +78,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             options,
-            predict_path,
+            predict_overview,
             load_user_data,
             save_user_data
         ])

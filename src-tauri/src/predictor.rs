@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::geo::{self, LatLon};
 use crate::propagation::{
-    Antenna, Coefficients, EngineRun, PathKind, PredictionRequest, PropagationEngine,
+    Antenna, Coefficients, EngineRun, FrequencyPrediction, PathKind, Prediction,
+    PredictionRequest, PropagationEngine,
 };
 use crate::solar::{self, SsnUsed};
 use crate::station::{Band, Mode, StationProfile, HF_BANDS, ISOTROPE};
@@ -39,6 +40,11 @@ pub struct PathPrediction {
     pub rx: LatLon,
     pub tx_locator: String,
     pub rx_locator: String,
+    /// Great-circle distance along the predicted path (short or long way round).
+    pub distance_km: f64,
+    /// Direction each antenna is aimed, along the predicted path.
+    pub tx_bearing_deg: f64,
+    pub rx_bearing_deg: f64,
     pub ssn: SsnUsed,
     pub required_snr_db_hz: f64,
     /// Bands in the same order as each hour's `frequencies`.
@@ -48,10 +54,242 @@ pub struct PathPrediction {
     pub run: EngineRun,
 }
 
+/// Transmit powers compared against the station's own.
+const POWER_LEVELS_WATTS: [f64; 4] = [5.0, 10.0, 50.0, 100.0];
+/// Frequencies swept to locate the lowest usable and optimum working
+/// frequencies. An engine run takes at most eleven.
+const SWEEP_MHZ: [f64; 22] = [
+    2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 18.0, 20.0,
+    22.0, 24.0, 26.0, 28.0, 30.0,
+];
+const SWEEP_CHUNK: usize = 11;
+/// The optimum working frequency is the one the path supports on this share of days.
+const FOT_MUF_DAY: f64 = 0.9;
+
+/// The main prediction's reliability and SNR at another transmit power.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PowerCase {
+    pub power_watts: f64,
+    /// `[hour][band]`, in the main prediction's order.
+    pub reliability: Vec<Vec<f64>>,
+    pub snr_db: Vec<Vec<f64>>,
+}
+
+/// The usable frequency range for one hour.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequencyWindow {
+    pub utc_hour: u32,
+    /// Median maximum usable frequency.
+    pub muf_mhz: f64,
+    /// Optimum working frequency: supported on 90% of days. `None` if below the sweep.
+    pub fot_mhz: Option<f64>,
+    /// Lowest frequency whose median SNR meets the requirement. `None` if none does.
+    pub luf_mhz: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathDetail {
+    pub prediction: PathPrediction,
+    pub power: Vec<PowerCase>,
+    pub window: Vec<FrequencyWindow>,
+}
+
+/// Everything the results screen shows, for both ways round the earth.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathOverview {
+    pub short: PathDetail,
+    pub long: PathDetail,
+}
+
+/// A validated request, ready for the engine.
+struct Plan {
+    tx: LatLon,
+    rx: LatLon,
+    ssn: SsnUsed,
+    engine_request: PredictionRequest,
+}
+
+impl Plan {
+    fn into_prediction(self, engine: &str, run: EngineRun) -> PathPrediction {
+        PathPrediction {
+            tx: self.tx,
+            rx: self.rx,
+            tx_locator: geo::to_maidenhead(self.tx),
+            rx_locator: geo::to_maidenhead(self.rx),
+            distance_km: match self.engine_request.path {
+                PathKind::Short => geo::distance_km(self.tx, self.rx),
+                PathKind::Long => geo::EARTH_CIRCUMFERENCE_KM - geo::distance_km(self.tx, self.rx),
+            },
+            tx_bearing_deg: self.engine_request.tx_antenna.bearing_deg,
+            rx_bearing_deg: self.engine_request.rx_antenna.bearing_deg,
+            ssn: self.ssn,
+            required_snr_db_hz: self.engine_request.required_snr_db_hz,
+            bands: HF_BANDS.to_vec(),
+            engine: engine.to_string(),
+            run,
+        }
+    }
+}
+
 pub fn predict_path(
     engine: &dyn PropagationEngine,
     request: &PathRequest,
 ) -> Result<PathPrediction, String> {
+    let plan = plan(request)?;
+    let run = engine.predict(&plan.engine_request)?;
+    Ok(plan.into_prediction(engine.name(), run))
+}
+
+/// Short and long path, each with its power comparison and frequency window.
+/// The engine runs are independent, so they run side by side.
+pub fn predict_overview(
+    engine: &(dyn PropagationEngine + Sync),
+    request: &PathRequest,
+) -> Result<PathOverview, String> {
+    std::thread::scope(|scope| {
+        let long = scope
+            .spawn(|| path_detail(engine, &PathRequest { long_path: true, ..request.clone() }));
+        let short = path_detail(engine, &PathRequest { long_path: false, ..request.clone() })?;
+        Ok(PathOverview { short, long: join(long)? })
+    })
+}
+
+fn join<T>(handle: std::thread::ScopedJoinHandle<'_, Result<T, String>>) -> Result<T, String> {
+    handle.join().unwrap_or_else(|_| Err("a prediction thread panicked".into()))
+}
+
+fn path_detail(
+    engine: &(dyn PropagationEngine + Sync),
+    request: &PathRequest,
+) -> Result<PathDetail, String> {
+    let plan = plan(request)?;
+    let base = &plan.engine_request;
+    let required_snr = base.required_snr_db_hz;
+    let mut powers = POWER_LEVELS_WATTS.to_vec();
+    if !powers.contains(&base.tx_power_watts) {
+        powers.push(base.tx_power_watts);
+    }
+    powers.sort_by(f64::total_cmp);
+
+    let (run, power, sweeps) = std::thread::scope(|scope| {
+        let main = scope.spawn(|| engine.predict(base));
+        let power_runs: Vec<_> = powers
+            .iter()
+            .map(|&watts| {
+                scope.spawn(move || {
+                    engine.predict(&PredictionRequest { tx_power_watts: watts, ..base.clone() })
+                })
+            })
+            .collect();
+        let sweep_runs: Vec<_> = SWEEP_MHZ
+            .chunks(SWEEP_CHUNK)
+            .map(|chunk| {
+                scope.spawn(move || {
+                    engine.predict(&PredictionRequest {
+                        frequencies_mhz: chunk.to_vec(),
+                        ..base.clone()
+                    })
+                })
+            })
+            .collect();
+
+        let run = join(main)?;
+        let power = power_runs
+            .into_iter()
+            .zip(&powers)
+            .map(|(handle, &watts)| Ok(power_case(watts, &join(handle)?.prediction)))
+            .collect::<Result<Vec<_>, String>>()?;
+        let sweeps = sweep_runs
+            .into_iter()
+            .map(|handle| Ok(join(handle)?.prediction))
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok::<_, String>((run, power, sweeps))
+    })?;
+
+    let window = frequency_windows(&sweeps, required_snr);
+    Ok(PathDetail { prediction: plan.into_prediction(engine.name(), run), power, window })
+}
+
+fn power_case(power_watts: f64, prediction: &Prediction) -> PowerCase {
+    let per_band = |value: fn(&FrequencyPrediction) -> f64| {
+        prediction
+            .hours
+            .iter()
+            .map(|hour| hour.frequencies.iter().map(value).collect())
+            .collect()
+    };
+    PowerCase {
+        power_watts,
+        reliability: per_band(|f| f.reliability),
+        snr_db: per_band(|f| f.snr_db),
+    }
+}
+
+/// One swept frequency in one hour.
+#[derive(Debug, Clone, Copy)]
+struct SweepPoint {
+    mhz: f64,
+    muf_day: f64,
+    snr_db: f64,
+}
+
+fn frequency_windows(sweeps: &[Prediction], required_snr: f64) -> Vec<FrequencyWindow> {
+    let Some(first) = sweeps.first() else { return Vec::new() };
+    first
+        .hours
+        .iter()
+        .enumerate()
+        .map(|(i, hour)| {
+            // The sweep runs are in ascending frequency order.
+            let points: Vec<SweepPoint> = sweeps
+                .iter()
+                .filter_map(|sweep| sweep.hours.get(i))
+                .flat_map(|h| &h.frequencies)
+                .map(|f| SweepPoint { mhz: f.freq_mhz, muf_day: f.muf_day, snr_db: f.snr_db })
+                .collect();
+            FrequencyWindow {
+                utc_hour: hour.utc_hour,
+                muf_mhz: hour.muf_mhz,
+                fot_mhz: fot(&points),
+                luf_mhz: luf(&points, required_snr),
+            }
+        })
+        .collect()
+}
+
+/// Highest frequency the path supports on 90% of days, interpolated between sweep points.
+fn fot(points: &[SweepPoint]) -> Option<f64> {
+    let i = points.iter().rposition(|p| p.muf_day >= FOT_MUF_DAY)?;
+    let below = points[i];
+    match points.get(i + 1) {
+        Some(above) if below.muf_day > above.muf_day => Some(
+            below.mhz
+                + (below.muf_day - FOT_MUF_DAY) / (below.muf_day - above.muf_day)
+                    * (above.mhz - below.mhz),
+        ),
+        _ => Some(below.mhz),
+    }
+}
+
+/// Lowest frequency whose median SNR meets the requirement, interpolated between sweep points.
+fn luf(points: &[SweepPoint], required_snr: f64) -> Option<f64> {
+    let i = points.iter().position(|p| p.snr_db >= required_snr)?;
+    let meets = points[i];
+    match i.checked_sub(1).map(|j| points[j]) {
+        Some(short) if meets.snr_db > short.snr_db => Some(
+            short.mhz
+                + (required_snr - short.snr_db) / (meets.snr_db - short.snr_db)
+                    * (meets.mhz - short.mhz),
+        ),
+        _ => Some(meets.mhz),
+    }
+}
+
+fn plan(request: &PathRequest) -> Result<Plan, String> {
     let tx = geo::parse_position(&request.tx_position).map_err(|e| format!("Transmitter: {e}"))?;
     let rx = geo::parse_position(&request.rx_position).map_err(|e| format!("Receiver: {e}"))?;
     if !(1..=12).contains(&request.month) {
@@ -107,39 +345,32 @@ pub fn predict_path(
         coefficients: Coefficients::Ccir,
     };
 
-    Ok(PathPrediction {
-        tx,
-        rx,
-        tx_locator: geo::to_maidenhead(tx),
-        rx_locator: geo::to_maidenhead(rx),
-        ssn,
-        required_snr_db_hz: engine_request.required_snr_db_hz,
-        bands: HF_BANDS.to_vec(),
-        engine: engine.name().to_string(),
-        run: engine.predict(&engine_request)?,
-    })
+    Ok(Plan { tx, rx, ssn, engine_request })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::sync::Mutex;
 
     use super::*;
     use crate::solar::SsnKind;
     use crate::station;
     use crate::voacap::output::parse_output;
 
-    /// Records the request it is given and answers with the reference output.
+    /// Records the requests it is given and answers with the reference output.
     struct RecordingEngine {
-        seen: RefCell<Option<PredictionRequest>>,
+        seen: Mutex<Vec<PredictionRequest>>,
     }
 
     impl RecordingEngine {
         fn new() -> Self {
-            Self { seen: RefCell::new(None) }
+            Self { seen: Mutex::new(Vec::new()) }
+        }
+        fn requests(&self) -> Vec<PredictionRequest> {
+            self.seen.lock().unwrap().clone()
         }
         fn request(&self) -> PredictionRequest {
-            self.seen.borrow().clone().expect("engine was not called")
+            self.requests().pop().expect("engine was not called")
         }
     }
 
@@ -148,7 +379,7 @@ mod tests {
             "recording"
         }
         fn predict(&self, request: &PredictionRequest) -> Result<EngineRun, String> {
-            *self.seen.borrow_mut() = Some(request.clone());
+            self.seen.lock().unwrap().push(request.clone());
             let output = include_str!("../../tests/engine/cases/test01.out");
             Ok(EngineRun {
                 prediction: parse_output(output)?,
@@ -254,6 +485,57 @@ mod tests {
         request.tx_station.min_angle_deg = 8.0;
         predict_path(&engine, &request).unwrap();
         assert_eq!(engine.request().min_angle_deg, 8.0);
+    }
+
+    fn point(mhz: f64, muf_day: f64, snr_db: f64) -> SweepPoint {
+        SweepPoint { mhz, muf_day, snr_db }
+    }
+
+    #[test]
+    fn fot_is_where_the_path_is_open_on_ninety_percent_of_days() {
+        let points = [point(10.0, 1.0, 0.0), point(12.0, 0.95, 0.0), point(14.0, 0.75, 0.0)];
+        assert!((fot(&points).unwrap() - 12.5).abs() < 1e-9);
+        // Open at the top of the sweep: the top frequency is the best we can say.
+        assert_eq!(fot(&points[..2]), Some(12.0));
+        // Never open that often.
+        assert_eq!(fot(&[point(2.0, 0.5, 0.0)]), None);
+    }
+
+    #[test]
+    fn luf_is_where_median_snr_first_meets_the_requirement() {
+        let points = [point(2.0, 1.0, 10.0), point(3.0, 1.0, 30.0), point(4.0, 1.0, 50.0)];
+        assert!((luf(&points, 38.0).unwrap() - 3.4).abs() < 1e-9);
+        // Already met at the bottom of the sweep.
+        assert_eq!(luf(&points, 5.0), Some(2.0));
+        // Never met.
+        assert_eq!(luf(&points, 60.0), None);
+    }
+
+    #[test]
+    fn overview_covers_both_paths_powers_and_the_sweep() {
+        let engine = RecordingEngine::new();
+        let mut request = atlanta_to_london();
+        request.tx_station.power_watts = 25.0;
+        let overview = predict_overview(&engine, &request).unwrap();
+        let sent = engine.requests();
+
+        // Per path: the main run, five powers (four standard plus 25 W), two sweep runs.
+        assert_eq!(sent.len(), 2 * (1 + 5 + 2));
+        assert_eq!(sent.iter().filter(|r| r.path == PathKind::Long).count(), sent.len() / 2);
+        let mut swept: Vec<f64> = sent
+            .iter()
+            .filter(|r| r.path == PathKind::Short && r.frequencies_mhz[0] != HF_BANDS[0].mhz)
+            .flat_map(|r| r.frequencies_mhz.clone())
+            .collect();
+        swept.sort_by(f64::total_cmp);
+        assert_eq!(swept, SWEEP_MHZ);
+
+        for detail in [&overview.short, &overview.long] {
+            let powers: Vec<f64> = detail.power.iter().map(|p| p.power_watts).collect();
+            assert_eq!(powers, [5.0, 10.0, 25.0, 50.0, 100.0]);
+            assert_eq!(detail.power[0].reliability.len(), 24);
+            assert_eq!(detail.window.len(), 24);
+        }
     }
 
     #[test]

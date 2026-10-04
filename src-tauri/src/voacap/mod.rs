@@ -69,7 +69,7 @@ impl PropagationEngine for VoacaplEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::predictor::{predict_path, PathRequest};
+    use crate::predictor::{predict_overview, predict_path, PathRequest};
     use crate::propagation::FrequencyPrediction;
     use crate::solar::SsnKind;
     use crate::station::{self, Mode, HF_BANDS};
@@ -173,6 +173,58 @@ mod tests {
             .map(|f| f.reliability)
             .fold(0.0, f64::max);
         assert!(best > 0.5, "best reliability {best}");
+    }
+
+    #[test]
+    fn overview_is_consistent_across_paths_powers_and_frequencies() {
+        let presets = station::presets();
+        let request = PathRequest {
+            tx_position: "EM73tr".into(),
+            rx_position: "IO91wm".into(),
+            year: 2026,
+            month: 10,
+            ssn: None,
+            tx_station: presets[0].clone(),
+            rx_station: presets[0].clone(),
+            mode: Mode::Ft8,
+            required_reliability_pct: 90.0,
+            long_path: false,
+        };
+
+        let overview = predict_overview(&engine("overview"), &request).unwrap();
+
+        // The long way round is a different, longer circuit.
+        let short = &overview.short.prediction.run.prediction;
+        let long = &overview.long.prediction.run.prediction;
+        assert_ne!(short.hours, long.hours);
+        // The engine prints short-path geometry for both; the predictor reports the real one.
+        let (short_path, long_path) = (&overview.short.prediction, &overview.long.prediction);
+        assert!((short_path.distance_km - 6770.0).abs() < 60.0);
+        assert!((short_path.distance_km + long_path.distance_km - 40030.0).abs() < 1.0);
+        assert!((short_path.tx_bearing_deg - 45.0).abs() < 2.0);
+        assert!((long_path.tx_bearing_deg - 225.0).abs() < 2.0);
+
+        // More power never lowers reliability, and SNR rises by the power ratio in dB.
+        let power = &overview.short.power;
+        let (low, high) = (&power[0], &power[power.len() - 1]);
+        assert_eq!((low.power_watts, high.power_watts), (5.0, 100.0));
+        for hour in 0..24 {
+            for band in 0..HF_BANDS.len() {
+                assert!(high.reliability[hour][band] >= low.reliability[hour][band]);
+                let gain = high.snr_db[hour][band] - low.snr_db[hour][band];
+                assert!((gain - 13.0).abs() <= 1.0, "hour {hour} band {band}: {gain} dB");
+            }
+        }
+
+        // The usable window sits below the MUF, and FT8 at 100 W finds one at some hour.
+        let window = &overview.short.window;
+        assert_eq!(window.len(), 24);
+        for hour in window {
+            if let Some(fot) = hour.fot_mhz {
+                assert!(fot <= hour.muf_mhz + 0.5, "FOT {fot} above MUF {}", hour.muf_mhz);
+            }
+        }
+        assert!(window.iter().any(|h| matches!((h.luf_mhz, h.fot_mhz), (Some(l), Some(f)) if l < f)));
     }
 
     #[test]

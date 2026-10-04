@@ -88,9 +88,34 @@ export type PathPrediction = {
   rx: { lat: number; lon: number };
   txLocator: string;
   rxLocator: string;
+  distanceKm: number;
+  txBearingDeg: number;
+  rxBearingDeg: number;
   ssn: SsnUsed;
   requiredSnrDbHz: number;
   bands: Band[];
   engine: string;
   run: { prediction: Prediction; input: string; output: string };
 };
+
+export type PowerCase = {
+  powerWatts: number;
+  /** [hour][band], in the main prediction's order. */
+  reliability: number[][];
+  snrDb: number[][];
+};
+
+export type FrequencyWindow = {
+  utcHour: number;
+  mufMhz: number;
+  fotMhz: number | null;
+  lufMhz: number | null;
+};
+
+export type PathDetail = {
+  prediction: PathPrediction;
+  power: PowerCase[];
+  window: FrequencyWindow[];
+};
+
+export type PathOverview = { short: PathDetail; long: PathDetail };

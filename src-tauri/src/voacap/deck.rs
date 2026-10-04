@@ -26,9 +26,11 @@ pub fn write_deck(request: &PredictionRequest) -> Result<String, String> {
         Coefficients::Ccir => "CCIR",
         Coefficients::Ursi => "URSI",
     };
-    let path = match request.path {
-        PathKind::Short => 'S',
-        PathKind::Long => 'L',
+    // The engine reads the trailing integer (0 short, 1 long); the letter
+    // only steers its antenna-bearing printout.
+    let (path, long_flag) = match request.path {
+        PathKind::Short => ('S', 0),
+        PathKind::Long => ('L', 1),
     };
     let (tx_lat, tx_ns) = hemisphere(request.tx.lat, 'N', 'S');
     let (tx_lon, tx_ew) = hemisphere(request.tx.lon, 'E', 'W');
@@ -53,8 +55,7 @@ pub fn write_deck(request: &PredictionRequest) -> Result<String, String> {
             w = LABEL_WIDTH
         ),
         format!(
-            "CIRCUIT   {tx_lat:5.2}{tx_ns}{tx_lon:9.2}{tx_ew}{rx_lat:9.2}{rx_ns}{rx_lon:9.2}{rx_ew}  {path}{:6}",
-            0
+            "CIRCUIT   {tx_lat:5.2}{tx_ns}{tx_lon:9.2}{tx_ew}{rx_lat:9.2}{rx_ns}{rx_lon:9.2}{rx_ew}  {path}{long_flag:6}"
         ),
         format!(
             "SYSTEM    {:4.0}.{:4.0}.{:5.2}{:4.0}.{:5.1}{:5.2}{:5.2}",
@@ -146,7 +147,7 @@ pub(crate) mod tests {
         request.tx = LatLon { lat: -33.87, lon: 151.21 };
         request.path = PathKind::Long;
         let deck = write_deck(&request).unwrap();
-        assert!(deck.contains("CIRCUIT   33.87S   151.21E    44.90N    20.50E  L     0\n"), "{deck}");
+        assert!(deck.contains("CIRCUIT   33.87S   151.21E    44.90N    20.50E  L     1\n"), "{deck}");
     }
 
     #[test]
