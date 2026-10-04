@@ -132,3 +132,40 @@ pub const HF_BANDS: [Band; 9] = [
     Band { name: "12 m", mhz: 24.9 },
     Band { name: "10 m", mhz: 28.2 },
 ];
+
+/// Amateur band edges in Hz, for naming the band a dial frequency is in.
+const BAND_EDGES: [(&str, u64, u64); 11] = [
+    ("160 m", 1_800_000, 2_000_000),
+    ("80 m", 3_500_000, 4_000_000),
+    ("60 m", 5_250_000, 5_450_000),
+    ("40 m", 7_000_000, 7_300_000),
+    ("30 m", 10_100_000, 10_150_000),
+    ("20 m", 14_000_000, 14_350_000),
+    ("17 m", 18_068_000, 18_168_000),
+    ("15 m", 21_000_000, 21_450_000),
+    ("12 m", 24_890_000, 24_990_000),
+    ("10 m", 28_000_000, 29_700_000),
+    ("6 m", 50_000_000, 54_000_000),
+];
+
+/// The amateur band a frequency is in, or the frequency itself outside them.
+pub fn band_for_hz(hz: u64) -> String {
+    BAND_EDGES
+        .iter()
+        .find(|(_, low, high)| (*low..=*high).contains(&hz))
+        .map_or_else(|| format!("{:.3} MHz", hz as f64 / 1e6), |(name, _, _)| name.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_the_band_of_a_dial_frequency() {
+        assert_eq!(band_for_hz(14_074_000), "20 m");
+        assert_eq!(band_for_hz(1_840_000), "160 m");
+        assert_eq!(band_for_hz(50_313_000), "6 m");
+        assert_eq!(band_for_hz(5_357_000), "60 m");
+        assert_eq!(band_for_hz(13_000_000), "13.000 MHz");
+    }
+}

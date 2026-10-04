@@ -235,3 +235,82 @@ export type Imported = {
 };
 
 export type ConditionsUpdate<T> = { results: T[]; conditions: Conditions };
+
+export type ListenerConfig = { enabled: boolean; address: string; port: number };
+
+export type DecoderStatus = {
+  id: string;
+  version: string | null;
+  dialHz: number | null;
+  band: string | null;
+  mode: string | null;
+  deCall: string | null;
+  deGrid: string | null;
+  transmitting: boolean;
+  secondsSinceHeard: number;
+};
+
+export type ClockCheck = {
+  medianDtS: number | null;
+  samples: number;
+  level: "unknown" | "ok" | "warn" | "alarm";
+};
+
+export type TrackerStatus = {
+  decoders: DecoderStatus[];
+  clock: ClockCheck;
+  stored: number;
+  skipped: number;
+};
+
+export type ListenerStatus = {
+  config: ListenerConfig;
+  state: "off" | "listening" | "failed";
+  detail: string;
+  datagrams: number;
+  notUnderstood: number;
+  lastError: string | null;
+  tracker: TrackerStatus | null;
+};
+
+export type Observation = {
+  /** Start of the transmit period, seconds since the Unix epoch. */
+  timeUtc: number;
+  dialHz: number;
+  band: string;
+  dfHz: number;
+  snrDb: number;
+  dtS: number;
+  mode: string;
+  message: string;
+  kind: string;
+  sender: string | null;
+  addressee: string | null;
+  grid: string | null;
+  gridSource: "message" | "remembered" | null;
+  distanceKm: number | null;
+  bearingDeg: number | null;
+  rxGrid: string | null;
+  origin: string;
+  provider: string;
+  lowConfidence: boolean;
+  settling: boolean;
+};
+
+export type BandActivity = {
+  band: string;
+  dialHz: number;
+  listenedSeconds: number;
+  decodes: number;
+  uniqueCallsigns: number;
+  uniqueGrids: number;
+  medianSnrDb: number | null;
+  maxDistanceKm: number | null;
+};
+
+export type ImportSummary = {
+  stored: number;
+  alreadyStored: number;
+  transmissions: number;
+  notUnderstood: number;
+};

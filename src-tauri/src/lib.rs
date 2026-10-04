@@ -2,6 +2,7 @@ pub mod coverage;
 pub mod engine;
 pub mod geo;
 pub mod jsonfile;
+pub mod observations;
 pub mod predictor;
 pub mod propagation;
 pub mod solar;
@@ -10,8 +11,10 @@ pub mod station;
 pub mod timeutil;
 pub mod userdata;
 pub mod voacap;
+pub mod wsjtx;
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::Serialize;
 use tauri::{path::BaseDirectory, Manager};
@@ -23,7 +26,10 @@ use spacewx::fetch::FetchResult;
 use spacewx::store::{Imported, Store, Transport};
 use spacewx::Conditions;
 use station::{Band, Choice, Mode, StationProfile};
+use observations::{BandActivity, Database, Observation};
 use userdata::UserData;
+use wsjtx::alltxt::ImportSummary;
+use wsjtx::listener::{Listener, ListenerConfig, ListenerStatus};
 
 /// Everything the form offers, so the lists live in one place.
 #[derive(Serialize)]
@@ -161,6 +167,101 @@ fn winlink_request() -> String {
     spacewx::winlink_request()
 }
 
+const OBSERVATIONS_FILE: &str = "observations.db";
+const LISTENER_FILE: &str = "listener.json";
+
+/// What stays alive for the whole session.
+struct AppState {
+    /// The observation database, or why it could not be opened.
+    db: Result<Arc<Database>, String>,
+    listener_config: Mutex<ListenerConfig>,
+    listener: Mutex<Option<Listener>>,
+}
+
+impl AppState {
+    fn db(&self) -> Result<&Arc<Database>, String> {
+        self.db.as_ref().map_err(Clone::clone)
+    }
+
+    fn status(&self) -> ListenerStatus {
+        let config = self.listener_config.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        match self.listener.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+            Some(listener) => listener.status(),
+            None => ListenerStatus::off(config),
+        }
+    }
+
+    /// Stops any running listener and starts one for `config` if it is enabled.
+    fn apply(&self, config: ListenerConfig) -> Result<(), String> {
+        let mut listener = self.listener.lock().unwrap_or_else(PoisonError::into_inner);
+        // Dropping the old one closes its socket before the new one binds.
+        *listener = None;
+        if config.enabled {
+            *listener = Some(Listener::start(config.clone(), self.db()?.clone()));
+        }
+        *self.listener_config.lock().unwrap_or_else(PoisonError::into_inner) = config;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn listener_status(state: tauri::State<AppState>) -> ListenerStatus {
+    state.status()
+}
+
+#[tauri::command]
+fn set_listener_config(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+    config: ListenerConfig,
+) -> Result<ListenerStatus, String> {
+    jsonfile::save(&local_data_file(&app, LISTENER_FILE)?, &config)?;
+    state.apply(config)?;
+    Ok(state.status())
+}
+
+#[tauri::command]
+fn recent_observations(state: tauri::State<AppState>, limit: u32) -> Result<Vec<Observation>, String> {
+    state.db()?.recent(limit)
+}
+
+#[tauri::command]
+fn band_activity(state: tauri::State<AppState>, minutes: i64) -> Result<Vec<BandActivity>, String> {
+    state.db()?.band_activity(timeutil::now() - minutes * 60)
+}
+
+/// Imports the contents of a WSJT-X ALL.TXT log.
+#[tauri::command(async)]
+fn import_all_txt(
+    state: tauri::State<AppState>,
+    text: String,
+    rx_grid: Option<String>,
+) -> Result<ImportSummary, String> {
+    let rx_grid = rx_grid.as_deref().map(str::trim).filter(|g| !g.is_empty());
+    if let Some(grid) = rx_grid {
+        geo::from_maidenhead(grid).map_err(|e| format!("Receiver locator: {e}"))?;
+    }
+    wsjtx::alltxt::import(state.db()?, &text, rx_grid)
+}
+
+/// Opens the observation database and starts the listener if it was left on.
+fn start_observing(app: &tauri::AppHandle) -> AppState {
+    let db = local_data_file(app, OBSERVATIONS_FILE)
+        .and_then(|file| Database::open(&file))
+        .map(Arc::new);
+    let config: ListenerConfig = local_data_file(app, LISTENER_FILE)
+        .and_then(|file| jsonfile::load(&file))
+        .unwrap_or_default();
+    let state = AppState {
+        db,
+        listener_config: Mutex::new(config.clone()),
+        listener: Mutex::new(None),
+    };
+    // A database that will not open is reported when the screen asks for data.
+    let _ = state.apply(config);
+    state
+}
+
 /// Uses a sunspot table downloaded in an earlier session, if it is newer
 /// than the bundled one. A damaged cache file is ignored: the bundled table
 /// still works.
@@ -179,6 +280,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             install_cached_ssn_table(app.handle());
+            app.manage(start_observing(app.handle()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -190,6 +292,11 @@ pub fn run() {
             refresh_conditions,
             import_conditions,
             winlink_request,
+            listener_status,
+            set_listener_config,
+            recent_observations,
+            band_activity,
+            import_all_txt,
             load_user_data,
             save_user_data
         ])

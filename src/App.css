@@ -673,3 +673,42 @@ pre {
   overflow-x: auto;
   max-height: 520px;
 }
+
+/* Heard */
+
+input.short {
+  width: 7.5em;
+}
+
+.clock-warn {
+  color: var(--serious);
+}
+
+.clock-alarm {
+  color: #d1242f;
+  font-weight: 600;
+}
+
+.scroll.tall {
+  max-height: 420px;
+}
+
+table.results td.left {
+  text-align: left;
+}
+
+.mono {
+  font-family: ui-monospace, Consolas, Menlo, monospace;
+}
+
+tr.muted {
+  opacity: 0.5;
+}
+
+code {
+  font-family: ui-monospace, Consolas, Menlo, monospace;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
