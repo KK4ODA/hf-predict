@@ -15,10 +15,10 @@ Facts in this document were checked against primary sources (project repositorie
 | FT8 observations | Listen to WSJT-X's UDP stream over multicast. Observe-only first. No decoder of our own until there is a strong reason. |
 | Radio control | Later phase. Shared `rigctld` with WSJT-X as a co-client. WSJT-X has no UDP message for changing frequency. |
 | Before CAT | Use the FT8 band hopping built into WSJT-X 3.0 with a hop list our app recommends. No CAT risk. |
-| Winlink | Request five small text products from the PROPAGATION catalog (about 5 kB). Import by folder watch, file open or paste. |
+| Winlink | Request four small text products from the PROPAGATION catalog (about 8 kB as delivered). Import by folder watch, file open or paste. |
 | Application stack | Tauri 2 (Rust core, TypeScript UI), SQLite, bundled offline map data. |
 | Distribution | Public GitHub repository, GitHub Actions builds for three operating systems, signed in-app updater against GitHub Releases, and an offline installer path. |
-| App licence | Apache-2.0 recommended; GPL-3.0 is the alternative if copyleft is wanted. This is the owner's decision (section 19). |
+| App licence | Apache-2.0 (decided, section 19). |
 
 ---
 
@@ -142,7 +142,7 @@ None of this is legal advice. The two ambiguous items are the non-US copyright s
 | Month, UTC hour, path geometry | **Input** | **Input** | Drives predictions |
 | Power, antennas, noise, required SNR | **Input** | **Input** | Station profile |
 | Daily sunspot number | Not an input | Not an input | Awareness; VOACAP's authors say never to feed it in |
-| F10.7 daily flux | Not an input | Not an input | Awareness; 90-day mean usable as a drift check |
+| F10.7 daily flux | Not an input | Not an input | Awareness; a multi-week mean is usable as a drift check |
 | Kp, K, A indices | Not inputs (ICEPAC alone takes a K-derived Q index) | Not inputs | Storm warning banner |
 | X-ray flux, flares, proton events | Not inputs | Not inputs | Blackout warning on sunlit paths |
 | D-region absorption (D-RAP) | Not an input | Not an input | Awareness, online only |
@@ -155,7 +155,7 @@ VOACAP's maps were fitted to the pre-2015 sunspot scale. Since 2015 the publishe
 ### Near-real-time adjustment (proposal, experimental)
 
 - Precedents: VOACAP Online offers an experimental "dynamic" sunspot number (3-day mean of daily values). Winlink Express blends current flux with its predicted table.
-- Our proposal: use the 90-day mean F10.7 (obtainable even over Winlink) to compute an equivalent sunspot number through a standard regression **(relation to be chosen and verified)**. If it differs from the bundled prediction by more than a threshold, show both and let the operator pick. This guards against a stale table more than it chases daily variation.
+- Our proposal: use a multi-week mean of F10.7 to compute an equivalent sunspot number through a standard regression **(relation to be chosen and verified)**. Online, NOAA supplies observed means. Over Winlink, the 27-day outlook supplies 27 daily flux forecasts, and observed daily values accumulate locally with each import. If it differs from the bundled prediction by more than a threshold, show both and let the operator pick. This guards against a stale table more than it chases daily variation.
 - Storms and flares never change the numbers. They add a plain-language warning to the affected bands and paths.
 - NWRA's effective sunspot number feed, the usual source for this technique, was discontinued in May 2024.
 
@@ -174,20 +174,21 @@ Run a frequency sweep and read the `MUFday` column (the fraction of days the pat
 
 ### How catalog requests work
 
-- Send a message to `INQUIRY@winlink.org`, subject `REQUEST`, with one catalog ID per line. Each ID returns as a separate message from `SERVICE@winlink.org` with subject `INQUIRY: <ID>`, plain text.
+- Send a message to `INQUIRY@winlink.org`, subject `REQUEST`, with one catalog ID per line. Each ID returns as a separate message from `SERVICE@winlink.org`. For items backed by a web address the subject is `INQUIRY - <source URL>`; other items use `INQUIRY: <ID>`.
+- The reply body is MIME text, ISO-8859-1, quoted-printable: the NOAA product, then a line of `=====` and a Winlink footer. Confirmed from real replies received 2026-10-04.
 - Winlink Express offers the same through Settings → Winlink Catalog Requests.
 
 ### What the PROPAGATION category contains
 
-31 items, taken from the catalog file a Winlink Express installation keeps locally. No public web listing was found. The catalog does not give upstream URLs, so the NOAA product each item maps to is **inferred** from title and size.
+31 items, taken from the catalog file a Winlink Express installation keeps locally. No public web listing was found. The catalog does not give upstream URLs. The NOAA product behind each item is **confirmed** from real replies for the first five rows below and **inferred** from title and size for the rest.
 
 | ID | Content | Size | Use to us |
 |---|---|---|---|
-| `PROP_WWV` | Solar flux, A index, K index, storm summary | 0.5 kB | Daily indices and storm state |
-| `PROP_SGAS` | Daily solar and geophysical summary: flux, daily sunspot number, Ap, X-ray background, K indices | 1 kB | Daily indices, flare events |
-| `PROP_RSGA` | Joint USAF/NOAA report: observed, predicted and 90-day mean flux | 1 kB | 90-day mean flux for the drift check |
-| `PROP3DNOAA` | 3-day forecast: Kp by 3-hour block, storm and blackout probabilities | 1.8 kB | Forecast warnings |
-| `PROP.27DO` | 27-day outlook: flux, Ap, maximum Kp per day | 1.6 kB | Planning outlook |
+| `PROP_WWV` | `wwv.txt`: solar flux, A index, K index, storm summary | 0.5 kB | Daily indices and storm state |
+| `PROP_SGAS` | `sgas.txt`: daily flux, daily sunspot number, Ap, X-ray background, K indices, flare and proton events | 1 kB | Daily indices, flare events |
+| `PROP_RSGA` | Listed as the joint USAF/NOAA report, but the reply is the same `sgas.txt` as `PROP_SGAS` | 1 kB | Not needed |
+| `PROP3DNOAA` | `3-day-forecast.txt`: Kp by 3-hour block, storm and blackout probabilities | 1.8 kB | Forecast warnings |
+| `PROP.27DO` | `27-day-outlook.txt`: flux, Ap, maximum Kp per day; issued weekly | 1.6 kB | Planning outlook; flux for the drift check |
 | `PROP_3DAY`, `PROP_3DPROB`, `PROP_SGAS_27`, `PROPWKHI`, `PROP_ADVIS` | Further forecasts and advisories | 0.7–2.7 kB | Optional |
 | `PROP_DRAP`, `PROP_SOLWIND`, ionograms, hourly area prediction charts | Images | 13–84 kB | Too large for routine HF use; not parsed |
 
@@ -195,19 +196,19 @@ Run a frequency sweep and read the `MUFday` column (the fraction of days the pat
 
 ### Proposed workflow
 
-1. **Generate.** The app shows a ready-made request (the first five IDs above, about 5 kB raw and roughly 2–2.5 kB compressed) to copy, or writes it as a message file for the user's Winlink client.
+1. **Generate.** The app shows a ready-made request (`PROP_WWV`, `PROP_SGAS`, `PROP3DNOAA`, `PROP.27DO`; about 8 kB as delivered messages, less when compressed) to copy, or writes it as a message file for the user's Winlink client.
 2. **Receive.** The user's own client and modem do the transfer. We never touch the modem.
 3. **Detect.** Optional folder watch:
    - Winlink Express stores one MIME file per message under `<install>\<CALL>\Messages\`.
    - Pat stores one `.b2f` file per message under `mailbox/<CALL>/in/`.
-   - The trigger is a new message from `SERVICE@winlink.org` whose subject starts `INQUIRY: PROP`.
+   - The trigger is a new message from `SERVICE@winlink.org` whose subject starts `INQUIRY` and whose body carries a NOAA `:Product:` header.
 4. **Fallbacks.** Open a file, or paste the text.
-5. **Parse.** Parsers recognise each NOAA product by its own header lines, not by the Winlink ID. The same parsers serve the Internet path. They tolerate missing-value markers (`?`, `???`, `-1`, `*`) and decimal Kp.
+5. **Parse.** Parsers recognise each NOAA product by its own header lines, not by the Winlink ID. The same parsers serve the Internet path. They decode quoted-printable, cut the Winlink footer, and tolerate missing-value markers (`?`, `???`, `-1`, `*`) and decimal Kp.
 6. **Store.** Each value is saved with source, transport (Winlink), issue time and import time.
 
 ### Airtime
 
-Per the Winlink FAQ, 4 kB compressed takes about 15 minutes on Pactor 1, 4 minutes on Pactor 2, 30 seconds on Pactor 3, with ARDOP and VARA HF in between. The five-item request is practical on any of them.
+Per the Winlink FAQ, 4 kB compressed takes about 15 minutes on Pactor 1, 4 minutes on Pactor 2, 30 seconds on Pactor 3, with ARDOP and VARA HF in between. The four-item request is practical on any of them.
 
 ### Extra compact datasets (proposal, needs testing)
 
@@ -217,8 +218,8 @@ Per the Winlink FAQ, 4 kB compressed takes about 15 minutes on Pactor 1, 4 minut
 
 ### Still to confirm
 
-- A real `PROP_*` reply body. None was available; one request from a Winlink station gives us test fixtures.
-- The upstream product behind each ID.
+- Whether any catalog item returns the joint USAF/NOAA report, which carries the 90-day mean flux.
+- The upstream product behind the remaining IDs.
 
 ---
 
@@ -645,11 +646,11 @@ Maps are drawn from bundled vector data. No tile server is needed.
 | 5 | WSJT-X protocol drift (new types in 3.2) and version differences in decode timing | Tolerant parser; fixtures per version; our own dial-change guard. |
 | 6 | Shared `rigctld`: interleaving, cache staleness, `--vfo` mismatch, band-stack mode recall, split hazard | Pre-flight checks and read-backs (section 10); CAT is a late phase. |
 | 7 | Retune side effects on tuners and amplifiers | Explicit operator confirmation; receive-only; easy STOP. |
-| 8 | Winlink item-to-product mapping is inferred; no sample reply seen | Content-based parsers; obtain real replies early. |
+| 8 | Winlink catalog items can change or return an unexpected product (`PROP_RSGA` returns the SGAS product) | Content-based parsers, tested against real replies. |
 | 9 | NOAA endpoints change (they did in March 2026) | Versioned, tolerant parsers; saved fixtures; failure is visible, not silent. |
 | 10 | FT8 evidence is biased by who is on the air | Terminology, slot counts, baselines; never "closed". |
 | 11 | GPL code entering the build by accident | Section 3 list; CI licence check; GPL programs only as separate processes. |
-| 12 | Unsigned installers trigger Windows and macOS warnings | Decide on signing (section 19). |
+| 12 | Unsigned installers trigger Windows and macOS warnings | Builds will be signed (decided, section 19). |
 | 13 | Windows web view missing on older offline machines | Ship the offline web-view installer inside ours. |
 | 14 | `rigctld` security history | Bind to loopback; require 4.7.2 or later. |
 | 15 | ITU licence wording too narrow to bundle ITURHFProp | Ask ITU-R SG3; keep it optional. |
@@ -696,18 +697,18 @@ Changes from the proposed order, and why:
 
 ## 19. Decisions and open items
 
-**For the project owner**
+**Decided by the project owner (2026-10-04)**
 
-1. **App licence.** Apache-2.0 keeps every option open, including a later move to GPL if GPL decoder code is ever linked. GPL-3.0 prevents closed forks and matches WSJT-X. Recommendation: Apache-2.0.
-2. **Code signing.** Without it, Windows and macOS show warnings on install. Certificates cost money each year. Decide before the first public release.
-3. **Sunspot scale default** (section 4).
-4. **UI stack.** Confirm Tauri, or prefer Electron.
+1. **App licence: Apache-2.0.** It keeps a later move to GPL open if GPL decoder code is ever linked.
+2. **Code signing: yes.** Windows and macOS builds will be signed. The owner obtains the certificates before the first public release.
+3. **UI stack: Tauri 2.**
+4. **Sunspot scale default:** current published (new-scale) values, as VOACAP Online does, with an advanced setting (section 4).
+5. **First test radio: Yaesu FTDX10.** Its Hamlib backend is expected to be the Yaesu one that issues a band-select on band changes (unverified), so rule 3 in section 10 applies directly.
 
 **To obtain**
 
-- Real replies to `PROP_WWV`, `PROP_SGAS`, `PROP_RSGA`, `PROP3DNOAA` and `PROP.27DO` from a Winlink station, as parser fixtures.
+- Copies of real Winlink replies for `wwv.txt`, `sgas.txt`, `3-day-forecast.txt` and `27-day-outlook.txt`, with callsign and message ID removed, as parser fixtures. Replies were received and inspected on 2026-10-04 but are not yet in the repository.
 - UDP captures from a normal WSJT-X session, as parser fixtures.
-- Radio models to test scanning against.
 
 **To verify**
 

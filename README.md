@@ -14,4 +14,4 @@ Pre-implementation. The [engineering assessment](docs/engineering-assessment.md)
 
 ## License
 
-To be decided once the propagation-engine licensing review is complete.
+Apache-2.0. See [LICENSE](LICENSE). Third-party components and their terms are listed in the engineering assessment.
