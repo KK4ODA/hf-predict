@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::engine::Engine;
-use crate::propagation::{EngineRun, PredictionRequest, PropagationEngine};
+use crate::geo::LatLon;
+use crate::propagation::{EngineRun, HourPrediction, PredictionRequest, PropagationEngine};
 
 static RUN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -25,27 +26,53 @@ impl VoacaplEngine {
     }
 }
 
-impl PropagationEngine for VoacaplEngine {
-    fn name(&self) -> &str {
-        "voacapl"
-    }
-
-    fn predict(&self, request: &PredictionRequest) -> Result<EngineRun, String> {
-        let input = deck::write_deck(request)?;
+impl VoacaplEngine {
+    /// Runs a deck in a fresh folder and parses the output. A failed run
+    /// keeps its folder so the deck and output can be inspected.
+    fn run(&self, input: &str) -> Result<(crate::propagation::Prediction, String), String> {
         let run_dir = self.run_root.join(format!(
             "{}-{}",
             std::process::id(),
             RUN_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
-
-        // A failed run keeps its folder so the deck and output can be inspected.
-        let output = self
-            .runner
-            .run_deck(&input, &run_dir)
-            .map_err(|e| format!("{e} (run folder kept at {})", run_dir.display()))?;
-        let mut prediction = output::parse_output(&output)
-            .map_err(|e| format!("{e} (run folder kept at {})", run_dir.display()))?;
+        let kept = |e: String| format!("{e} (run folder kept at {})", run_dir.display());
+        let output = self.runner.run_deck(input, &run_dir).map_err(kept)?;
+        let prediction = output::parse_output(&output).map_err(kept)?;
         let _ = fs::remove_dir_all(&run_dir);
+        Ok((prediction, output))
+    }
+}
+
+impl PropagationEngine for VoacaplEngine {
+    fn name(&self) -> &str {
+        "voacapl"
+    }
+
+    /// One engine process runs every receiver: starting the process costs far
+    /// more than a circuit does.
+    fn predict_hour_to_many(
+        &self,
+        request: &PredictionRequest,
+        receivers: &[LatLon],
+    ) -> Result<Vec<HourPrediction>, String> {
+        if request.utc_hour.is_none() {
+            return Err("predicting to many receivers needs a single hour".into());
+        }
+        let input = deck::write_deck_for_receivers(request, receivers)?;
+        let (prediction, _) = self.run(&input)?;
+        if prediction.hours.len() != receivers.len() {
+            return Err(format!(
+                "engine returned {} results for {} receivers",
+                prediction.hours.len(),
+                receivers.len()
+            ));
+        }
+        Ok(prediction.hours)
+    }
+
+    fn predict(&self, request: &PredictionRequest) -> Result<EngineRun, String> {
+        let input = deck::write_deck(request)?;
+        let (mut prediction, output) = self.run(&input)?;
 
         // The output prints frequencies to one decimal; restore the requested ones.
         for hour in &mut prediction.hours {
@@ -69,7 +96,7 @@ impl PropagationEngine for VoacaplEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::predictor::{predict_path, PathRequest};
+    use crate::predictor::{predict_overview, predict_path, PathRequest};
     use crate::propagation::FrequencyPrediction;
     use crate::solar::SsnKind;
     use crate::station::{self, Mode, HF_BANDS};
@@ -173,6 +200,58 @@ mod tests {
             .map(|f| f.reliability)
             .fold(0.0, f64::max);
         assert!(best > 0.5, "best reliability {best}");
+    }
+
+    #[test]
+    fn overview_is_consistent_across_paths_powers_and_frequencies() {
+        let presets = station::presets();
+        let request = PathRequest {
+            tx_position: "EM73tr".into(),
+            rx_position: "IO91wm".into(),
+            year: 2026,
+            month: 10,
+            ssn: None,
+            tx_station: presets[0].clone(),
+            rx_station: presets[0].clone(),
+            mode: Mode::Ft8,
+            required_reliability_pct: 90.0,
+            long_path: false,
+        };
+
+        let overview = predict_overview(&engine("overview"), &request).unwrap();
+
+        // The long way round is a different, longer circuit.
+        let short = &overview.short.prediction.run.prediction;
+        let long = &overview.long.prediction.run.prediction;
+        assert_ne!(short.hours, long.hours);
+        // The engine prints short-path geometry for both; the predictor reports the real one.
+        let (short_path, long_path) = (&overview.short.prediction, &overview.long.prediction);
+        assert!((short_path.distance_km - 6770.0).abs() < 60.0);
+        assert!((short_path.distance_km + long_path.distance_km - 40030.0).abs() < 1.0);
+        assert!((short_path.tx_bearing_deg - 45.0).abs() < 2.0);
+        assert!((long_path.tx_bearing_deg - 225.0).abs() < 2.0);
+
+        // More power never lowers reliability, and SNR rises by the power ratio in dB.
+        let power = &overview.short.power;
+        let (low, high) = (&power[0], &power[power.len() - 1]);
+        assert_eq!((low.power_watts, high.power_watts), (5.0, 100.0));
+        for hour in 0..24 {
+            for band in 0..HF_BANDS.len() {
+                assert!(high.reliability[hour][band] >= low.reliability[hour][band]);
+                let gain = high.snr_db[hour][band] - low.snr_db[hour][band];
+                assert!((gain - 13.0).abs() <= 1.0, "hour {hour} band {band}: {gain} dB");
+            }
+        }
+
+        // The usable window sits below the MUF, and FT8 at 100 W finds one at some hour.
+        let window = &overview.short.window;
+        assert_eq!(window.len(), 24);
+        for hour in window {
+            if let Some(fot) = hour.fot_mhz {
+                assert!(fot <= hour.muf_mhz + 0.5, "FOT {fot} above MUF {}", hour.muf_mhz);
+            }
+        }
+        assert!(window.iter().any(|h| matches!((h.luf_mhz, h.fot_mhz), (Some(l), Some(f)) if l < f)));
     }
 
     #[test]

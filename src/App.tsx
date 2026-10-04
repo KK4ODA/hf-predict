@@ -1,13 +1,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { ResultsTable } from "./ResultsTable";
+import { MapPanel } from "./MapPanel";
+import { Overview } from "./Overview";
 import { StationEditor } from "./StationEditor";
 import { UpdateCheck } from "./UpdateCheck";
 import {
   Mode,
   Options,
-  PathPrediction,
+  PathOverview,
   PathRequest,
   SavedLocation,
   StationProfile,
@@ -18,7 +19,7 @@ import "./App.css";
 type RunState =
   | { kind: "idle" }
   | { kind: "running" }
-  | { kind: "done"; result: PathPrediction }
+  | { kind: "done"; result: PathOverview }
   | { kind: "failed"; error: string };
 
 function App() {
@@ -92,7 +93,7 @@ function App() {
     };
     setRun({ kind: "running" });
     try {
-      setRun({ kind: "done", result: await invoke<PathPrediction>("predict_path", { request }) });
+      setRun({ kind: "done", result: await invoke<PathOverview>("predict_overview", { request }) });
     } catch (error) {
       setRun({ kind: "failed", error: String(error) });
     }
@@ -277,8 +278,24 @@ function App() {
         </button>
       </form>
 
+      <MapPanel
+        txPosition={txPosition}
+        rxPosition={rxPosition}
+        longPath={longPath}
+        year={year}
+        month={month}
+        ssn={ssn.trim() === "" ? null : Number(ssn)}
+        txStation={txStation}
+        rxStation={rxStation}
+        mode={mode}
+        reliability={reliability}
+        bands={options.bands}
+        onPickTx={setTxPosition}
+        onPickRx={setRxPosition}
+      />
+
       {run.kind === "failed" && <p className="error">Prediction failed: {run.error}</p>}
-      {run.kind === "done" && <ResultsTable result={run.result} />}
+      {run.kind === "done" && <Overview overview={run.result} startOnLongPath={longPath} />}
     </main>
   );
 }

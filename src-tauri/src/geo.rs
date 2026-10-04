@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 const EARTH_RADIUS_KM: f64 = 6371.0;
+pub const EARTH_CIRCUMFERENCE_KM: f64 = 2.0 * std::f64::consts::PI * EARTH_RADIUS_KM;
 
 /// A position in degrees; north and east are positive.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

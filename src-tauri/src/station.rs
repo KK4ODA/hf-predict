@@ -39,6 +39,16 @@ pub fn antennas() -> Vec<Choice<&'static str>> {
     ]
 }
 
+/// The smallest rotation that leaves an antenna's azimuth pattern unchanged:
+/// 0 for omnidirectional antennas, 180 for a dipole, 360 when unknown.
+pub fn azimuth_period_deg(antenna_file: &str) -> f64 {
+    match antenna_file {
+        ISOTROPE | VERTICAL | WHIP => 0.0,
+        DIPOLE_10M | DIPOLE_5M => 180.0,
+        _ => 360.0,
+    }
+}
+
 /// VOACAP man-made noise categories.
 pub const NOISE_RESIDENTIAL: f64 = 145.0;
 pub const NOISE_RURAL: f64 = 155.0;

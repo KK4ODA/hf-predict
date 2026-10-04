@@ -6,6 +6,15 @@
   background: #f5f6f8;
   --border: #c9d0da;
   --surface: #fff;
+  --muted: #6b7280;
+  --grid: #e1e4ea;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --land: #d9dee5;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -14,6 +23,12 @@
     background: #171b21;
     --border: #3a4350;
     --surface: #222831;
+    --muted: #8b95a3;
+    --grid: #2a313b;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --land: #333c48;
   }
 }
 
@@ -65,6 +80,8 @@ fieldset {
   padding: 8px 12px 12px;
   margin: 0;
   display: grid;
+  /* minmax(0, ...) lets wide rows shrink instead of pushing past the card edge. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
 }
@@ -142,6 +159,7 @@ button.primary {
   margin: 0;
   padding: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
 }
 
@@ -220,4 +238,281 @@ pre {
 
 .update {
   font-size: 0.9rem;
+}
+
+.overview h3 {
+  margin-top: 22px;
+}
+
+.controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+}
+
+.segmented {
+  display: inline-flex;
+}
+
+.segmented button {
+  border-radius: 0;
+}
+
+.segmented button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.segmented button:last-child {
+  border-radius: 0 6px 6px 0;
+  border-left: 0;
+}
+
+.segmented button[aria-pressed="true"] {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+}
+
+table.bands {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+table.bands th,
+table.bands td {
+  border-bottom: 1px solid var(--border);
+  padding: 3px 12px;
+  text-align: right;
+}
+
+table.bands thead th {
+  font-weight: 600;
+}
+
+table.bands td.left,
+table.bands th:last-child {
+  text-align: left;
+}
+
+table.bands td:nth-child(2),
+table.bands th:nth-child(2) {
+  text-align: left;
+}
+
+.tier-good {
+  color: var(--good);
+}
+
+.tier-fair {
+  color: var(--warning);
+}
+
+.tier-poor {
+  color: var(--serious);
+}
+
+.tier-unlikely,
+.hint {
+  color: var(--muted);
+}
+
+table.results tbody tr {
+  cursor: pointer;
+}
+
+table.results tr.selected th,
+table.results tr.selected td {
+  border-top: 2px solid #1f6feb;
+  border-bottom: 2px solid #1f6feb;
+}
+
+.legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.key {
+  display: inline-block;
+  width: 16px;
+  border-top: 2px solid;
+  vertical-align: middle;
+}
+
+.key-muf {
+  border-color: var(--series-1);
+}
+
+.key-fot {
+  border-color: var(--series-2);
+}
+
+.key-luf {
+  border-color: var(--series-3);
+}
+
+.chart {
+  position: relative;
+  max-width: 760px;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart .grid {
+  stroke: var(--grid);
+}
+
+.chart .axis {
+  stroke: var(--border);
+}
+
+.chart .tick {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart .line-label {
+  fill: currentColor;
+  font-size: 11px;
+}
+
+.chart .line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart .line-muf {
+  stroke: var(--series-1);
+}
+
+.chart .line-fot {
+  stroke: var(--series-2);
+}
+
+.chart .line-luf {
+  stroke: var(--series-3);
+}
+
+.chart .selected-hour {
+  stroke: #1f6feb;
+  stroke-dasharray: 3 3;
+}
+
+.chart .crosshair {
+  stroke: var(--muted);
+}
+
+.chart .dot {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.chart .dot-muf {
+  fill: var(--series-1);
+}
+
+.chart .dot-fot {
+  fill: var(--series-2);
+}
+
+.chart .dot-luf {
+  fill: var(--series-3);
+}
+
+.tooltip {
+  position: absolute;
+  top: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tooltip-title {
+  color: var(--muted);
+}
+
+.map {
+  position: relative;
+  max-width: 760px;
+  margin-top: 8px;
+}
+
+.map svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.map svg.picking {
+  cursor: crosshair;
+}
+
+.map .sea {
+  fill: var(--surface);
+}
+
+.map .land {
+  fill: var(--land);
+}
+
+.map .graticule {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+
+.map .night {
+  fill: rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.map .route {
+  fill: none;
+  stroke: var(--series-2);
+  stroke-width: 2;
+}
+
+.map .marker {
+  fill: var(--series-2);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.map .marker-label {
+  fill: currentColor;
+  font-size: 12px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+}
+
+.ramp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 0.85rem;
+}
+
+.ramp-bar {
+  width: 160px;
+  height: 10px;
+  border: 1px solid var(--border);
+  background: linear-gradient(to right, rgba(57, 135, 229, 0), rgba(57, 135, 229, 0.7));
 }

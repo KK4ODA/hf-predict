@@ -15,6 +15,8 @@ Early development. Installers are on the [Releases](https://github.com/KK4ODA/hf
 Working now:
 
 - Offline point-to-point prediction for the 80 m to 10 m amateur bands, hour by hour, using the real VOACAP engine bundled with the app.
+- Best bands for any hour, short and long path, a chart of the usable frequency range through the day, and a transmit-power comparison.
+- A world map for picking either end of the path, with day and night and a coverage overlay showing where a band reaches.
 - Station presets (power, antenna, local noise), saved stations and saved locations.
 - A bundled NOAA smoothed sunspot table, so no network is needed.
 - In-app update check.

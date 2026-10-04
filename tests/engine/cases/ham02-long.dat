@@ -5,7 +5,7 @@ TIME          1   24    1    1
 MONTH      202610.00
 SUNSPOT     70.
 LABEL     ATLANTA             LONDON
-CIRCUIT   33.75N    84.39W    51.51N     0.13W  L     0
+CIRCUIT   33.75N    84.39W    51.51N     0.13W  L     1
 SYSTEM       1. 145. 3.00  90. 43.0 3.00 0.10
 FPROB      1.00 1.00 1.00 0.00
 ANTENNA       1    1    2   30     0.000[default/isotrope     ]  0.0    0.1000
