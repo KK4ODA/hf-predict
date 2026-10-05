@@ -95,6 +95,9 @@ pub struct PathDetail {
     pub prediction: PathPrediction,
     pub power: Vec<PowerCase>,
     pub window: Vec<FrequencyWindow>,
+    /// Reliability for FT8 with the same stations, `[hour][band]`: the
+    /// prediction that FT8 observations can fairly be compared with.
+    pub ft8_reliability: Vec<Vec<f64>>,
 }
 
 /// Everything the results screen shows, for both ways round the earth.
@@ -175,8 +178,14 @@ fn path_detail(
     }
     powers.sort_by(f64::total_cmp);
 
-    let (run, power, sweeps) = std::thread::scope(|scope| {
+    let (run, power, sweeps, ft8) = std::thread::scope(|scope| {
         let main = scope.spawn(|| engine.predict(base));
+        let ft8_run = scope.spawn(|| {
+            engine.predict(&PredictionRequest {
+                required_snr_db_hz: Mode::Ft8.required_snr_db_hz(),
+                ..base.clone()
+            })
+        });
         let power_runs: Vec<_> = powers
             .iter()
             .map(|&watts| {
@@ -207,11 +216,17 @@ fn path_detail(
             .into_iter()
             .map(|handle| Ok(join(handle)?.prediction))
             .collect::<Result<Vec<_>, String>>()?;
-        Ok::<_, String>((run, power, sweeps))
+        let ft8 = power_case(base.tx_power_watts, &join(ft8_run)?.prediction).reliability;
+        Ok::<_, String>((run, power, sweeps, ft8))
     })?;
 
     let window = frequency_windows(&sweeps, required_snr);
-    Ok(PathDetail { prediction: plan.into_prediction(engine.name(), run), power, window })
+    Ok(PathDetail {
+        prediction: plan.into_prediction(engine.name(), run),
+        power,
+        window,
+        ft8_reliability: ft8,
+    })
 }
 
 fn power_case(power_watts: f64, prediction: &Prediction) -> PowerCase {
@@ -520,8 +535,9 @@ mod tests {
         let overview = predict_overview(&engine, &request).unwrap();
         let sent = engine.requests();
 
-        // Per path: the main run, five powers (four standard plus 25 W), two sweep runs.
-        assert_eq!(sent.len(), 2 * (1 + 5 + 2));
+        // Per path: the main run, the FT8 run, five powers (four standard plus 25 W), two sweep runs.
+        assert_eq!(sent.len(), 2 * (1 + 1 + 5 + 2));
+        assert_eq!(sent.iter().filter(|r| r.required_snr_db_hz == 13.0).count(), 2);
         assert_eq!(sent.iter().filter(|r| r.path == PathKind::Long).count(), sent.len() / 2);
         let mut swept: Vec<f64> = sent
             .iter()
@@ -536,6 +552,7 @@ mod tests {
             assert_eq!(powers, [5.0, 10.0, 25.0, 50.0, 100.0]);
             assert_eq!(detail.power[0].reliability.len(), 24);
             assert_eq!(detail.window.len(), 24);
+            assert_eq!(detail.ft8_reliability.len(), 24);
         }
     }
 

@@ -21,6 +21,7 @@ Working now:
 - A bundled NOAA smoothed sunspot table, so no network is needed. A newer one is downloaded when there is a network.
 - Solar and geophysical conditions (flux, A and K indices, storm state, three-day and 27-day forecasts) with source and age. They can be fetched from NOAA, or requested over Winlink and imported from files or pasted text.
 - Passive reception of WSJT-X decodes over the network (shared with GridTracker and JTAlert through a multicast group), stored locally with per-band activity, a clock check and import of WSJT-X's ALL.TXT log.
+- A comparison of prediction with what has been heard toward the destination, a per-band recommendation, and a simplified Field screen.
 - In-app update check.
 
 The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture and the roadmap.

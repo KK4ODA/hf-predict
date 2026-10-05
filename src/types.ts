@@ -116,6 +116,23 @@ export type PathDetail = {
   prediction: PathPrediction;
   power: PowerCase[];
   window: FrequencyWindow[];
+  /** Reliability for FT8 with the same stations, [hour][band]. */
+  ft8Reliability: number[][];
+};
+
+export type BandComparison = {
+  band: string;
+  modeReliability: number;
+  ft8Reliability: number;
+  predicted: "good" | "marginal" | "poor";
+  periods: number;
+  bandDecodes: number;
+  bandCallsigns: number;
+  evidenceStations: number;
+  evidenceBestSnrDb: number | null;
+  evidenceExamples: string[];
+  observed: "notSampled" | "none" | "limited" | "moderate" | "strong";
+  verdict: { label: string; detail: string; priority: number };
 };
 
 export type PathOverview = { short: PathDetail; long: PathDetail };

@@ -2,7 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { BestBands } from "./BestBands";
+import { ComparePanel } from "./ComparePanel";
 import { ConditionsPanel } from "./ConditionsPanel";
+import { FieldPanel } from "./FieldPanel";
 import { FrequencyChart } from "./FrequencyChart";
 import { HeardPanel } from "./HeardPanel";
 import { HourTable } from "./HourTable";
@@ -29,10 +31,12 @@ type RunState =
   | { kind: "done"; result: PathOverview }
   | { kind: "failed"; error: string };
 
-type Tab = "bands" | "day" | "map" | "heard" | "conditions" | "engine";
+type Tab = "bands" | "compare" | "field" | "day" | "map" | "heard" | "conditions" | "engine";
 
 const TABS: { id: Tab; label: string; needsResult: boolean }[] = [
   { id: "bands", label: "Best bands", needsResult: true },
+  { id: "compare", label: "Compare", needsResult: true },
+  { id: "field", label: "Field", needsResult: true },
   { id: "day", label: "Through the day", needsResult: true },
   { id: "map", label: "Map", needsResult: false },
   { id: "heard", label: "Heard", needsResult: false },
@@ -142,6 +146,7 @@ function App() {
   const hours = detail?.prediction.run.prediction.hours ?? [];
   const hourIndex = Math.max(0, hours.findIndex((h) => clockOf(h.utcHour) === clockHour));
   const selectHour = (index: number) => setClockHour(clockOf(hours[index].utcHour));
+  const modeLabel = options.modes.find((m) => m.value === mode)?.label ?? mode;
   const staleData =
     conditions !== null &&
     (conditions.ssnTable.stale || conditions.products.some((p) => p.stale || !p.stored));
@@ -398,6 +403,21 @@ function App() {
               />
               <PowerTable detail={detail} hourIndex={hourIndex} />
             </>
+          )}
+
+          {tab === "compare" && detail && (
+            <ComparePanel detail={detail} hourIndex={hourIndex} modeLabel={modeLabel} />
+          )}
+
+          {tab === "field" && detail && (
+            <FieldPanel
+              detail={detail}
+              hourIndex={hourIndex}
+              modeLabel={modeLabel}
+              longPath={longPath}
+              month={month}
+              conditions={conditions}
+            />
           )}
 
           {tab === "day" && detail && (
