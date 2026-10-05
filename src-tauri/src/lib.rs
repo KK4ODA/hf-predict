@@ -26,7 +26,7 @@ use spacewx::fetch::FetchResult;
 use spacewx::store::{Imported, Store, Transport};
 use spacewx::Conditions;
 use station::{Band, Choice, Mode, StationProfile};
-use observations::{BandActivity, Database, Observation};
+use observations::{BandActivity, Database, HeardStation, Observation};
 use userdata::UserData;
 use wsjtx::alltxt::ImportSummary;
 use wsjtx::listener::{Listener, ListenerConfig, ListenerStatus};
@@ -227,7 +227,18 @@ fn recent_observations(state: tauri::State<AppState>, limit: u32) -> Result<Vec<
 
 #[tauri::command]
 fn band_activity(state: tauri::State<AppState>, minutes: i64) -> Result<Vec<BandActivity>, String> {
-    state.db()?.band_activity(timeutil::now() - minutes * 60)
+    let now = timeutil::now();
+    state.db()?.band_activity(now - minutes * 60, now)
+}
+
+/// Stations heard in the last `minutes` whose position is known.
+#[tauri::command]
+fn heard_stations(
+    state: tauri::State<AppState>,
+    minutes: i64,
+    band: Option<String>,
+) -> Result<Vec<HeardStation>, String> {
+    state.db()?.heard_stations(timeutil::now() - minutes * 60, band.as_deref())
 }
 
 /// Imports the contents of a WSJT-X ALL.TXT log.
@@ -296,6 +307,7 @@ pub fn run() {
             set_listener_config,
             recent_observations,
             band_activity,
+            heard_stations,
             import_all_txt,
             load_user_data,
             save_user_data

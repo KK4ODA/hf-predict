@@ -362,6 +362,8 @@ mod tests {
     use crate::wsjtx::protocol::{self, encode};
 
     const ID: &str = "WSJT-X";
+    /// Later than any time in these tests.
+    const FOREVER: i64 = 4_000_000_000;
 
     fn status(dial_hz: u64) -> Status {
         Status {
@@ -462,7 +464,7 @@ mod tests {
         replay(&first, &session());
         replay(&second, &session());
         assert_eq!(first.all().unwrap(), second.all().unwrap());
-        assert_eq!(first.band_activity(0).unwrap(), second.band_activity(0).unwrap());
+        assert_eq!(first.band_activity(0, FOREVER).unwrap(), second.band_activity(0, FOREVER).unwrap());
 
         // Replaying into the same database adds nothing.
         let again = replay(&first, &session());
@@ -474,7 +476,7 @@ mod tests {
     fn listening_intervals_follow_the_dial() {
         let db = Arc::new(Database::in_memory().unwrap());
         replay(&db, &session());
-        let activity = db.band_activity(0).unwrap();
+        let activity = db.band_activity(0, FOREVER).unwrap();
         let by_band: Vec<(&str, i64, usize)> =
             activity.iter().map(|a| (a.band.as_str(), a.listened_seconds, a.decodes)).collect();
         // 33 s on 20 m, then 27 s on 40 m until WSJT-X closed. The settling decode is not counted.
@@ -496,7 +498,7 @@ mod tests {
 
         tracker.tick(start + 100).unwrap();
         assert!(tracker.status(start + 100).decoders.is_empty());
-        assert_eq!(db.band_activity(0).unwrap()[0].listened_seconds, 15);
+        assert_eq!(db.band_activity(0, FOREVER).unwrap()[0].listened_seconds, 15);
     }
 
     #[test]

@@ -301,11 +301,35 @@ export type BandActivity = {
   band: string;
   dialHz: number;
   listenedSeconds: number;
+  /** Transmit periods listened to. */
+  periods: number;
   decodes: number;
+  decodesPerPeriod: number | null;
   uniqueCallsigns: number;
   uniqueGrids: number;
   medianSnrDb: number | null;
+  p90SnrDb: number | null;
+  locatedStations: number;
+  medianDistanceKm: number | null;
   maxDistanceKm: number | null;
+  longDistanceStations: number;
+  /** Located stations per 45-degree compass sector, north first, clockwise. */
+  sectors: number[];
+  previousUniqueCallsigns: number;
+  previousPeriods: number;
+};
+
+export type HeardStation = {
+  callsign: string;
+  grid: string;
+  lat: number;
+  lon: number;
+  band: string;
+  decodes: number;
+  bestSnrDb: number;
+  lastHeardUtc: number;
+  distanceKm: number | null;
+  bearingDeg: number | null;
 };
 
 export type ImportSummary = {

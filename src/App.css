@@ -712,3 +712,27 @@ code {
   border-radius: 4px;
   padding: 0 4px;
 }
+
+.scroll-x {
+  overflow-x: auto;
+}
+
+.map .heard-station {
+  fill: var(--series-3);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+}
+
+.heard-key {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--series-3);
+  vertical-align: baseline;
+}
+
+.ramp {
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
