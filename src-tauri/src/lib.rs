@@ -1,3 +1,4 @@
+pub mod compare;
 pub mod coverage;
 pub mod engine;
 pub mod geo;
@@ -19,6 +20,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde::Serialize;
 use tauri::{path::BaseDirectory, Manager};
 
+use compare::{BandComparison, CompareQuery};
 use coverage::{Coverage, CoverageRequest};
 use geo::LatLon;
 use predictor::{PathOverview, PathRequest};
@@ -241,6 +243,12 @@ fn heard_stations(
     state.db()?.heard_stations(timeutil::now() - minutes * 60, band.as_deref())
 }
 
+/// Sets a path's per-band predictions beside what has been heard that way.
+#[tauri::command]
+fn compare_path(state: tauri::State<AppState>, query: CompareQuery) -> Result<Vec<BandComparison>, String> {
+    compare::compare(state.db()?, &query, timeutil::now())
+}
+
 /// Imports the contents of a WSJT-X ALL.TXT log.
 #[tauri::command(async)]
 fn import_all_txt(
@@ -308,6 +316,7 @@ pub fn run() {
             recent_observations,
             band_activity,
             heard_stations,
+            compare_path,
             import_all_txt,
             load_user_data,
             save_user_data
