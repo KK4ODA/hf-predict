@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { BestBands } from "./BestBands";
 import { ConditionsPanel } from "./ConditionsPanel";
 import { FrequencyChart } from "./FrequencyChart";
+import { HeardPanel } from "./HeardPanel";
 import { HourTable } from "./HourTable";
 import { MapPanel } from "./MapPanel";
 import { PowerTable } from "./PowerTable";
@@ -28,12 +29,13 @@ type RunState =
   | { kind: "done"; result: PathOverview }
   | { kind: "failed"; error: string };
 
-type Tab = "bands" | "day" | "map" | "conditions" | "engine";
+type Tab = "bands" | "day" | "map" | "heard" | "conditions" | "engine";
 
 const TABS: { id: Tab; label: string; needsResult: boolean }[] = [
   { id: "bands", label: "Best bands", needsResult: true },
   { id: "day", label: "Through the day", needsResult: true },
   { id: "map", label: "Map", needsResult: false },
+  { id: "heard", label: "Heard", needsResult: false },
   { id: "conditions", label: "Conditions", needsResult: false },
   { id: "engine", label: "Engine", needsResult: true },
 ];
@@ -126,7 +128,7 @@ function App() {
     try {
       const result = await invoke<PathOverview>("predict_overview", { request });
       setRun({ kind: "done", result });
-      setTab((current) => (current === "map" || current === "conditions" ? "bands" : current));
+      setTab((current) => (TABS.find((t) => t.id === current)?.needsResult ? current : "bands"));
     } catch (error) {
       setRun({ kind: "failed", error: String(error) });
     }
@@ -427,6 +429,8 @@ function App() {
               onPickRx={setRxPosition}
             />
           )}
+
+          {tab === "heard" && <HeardPanel />}
 
           {tab === "conditions" &&
             (conditions ? (
