@@ -28,6 +28,16 @@ function clock(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toISOString().slice(11, 19);
 }
 
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+/** Cell shading for a count against the largest in its row: one hue, stronger with more. */
+function countShade(count: number, largest: number): string {
+  return `rgba(57, 135, 229, ${(largest > 0 ? (count / largest) * 0.7 : 0).toFixed(2)})`;
+}
+
+const km = (value: number | null) => (value === null ? "—" : `${value.toFixed(0)} km`);
+const db = (value: number | null) => (value === null ? "—" : `${value.toFixed(0)} dB`);
+
 function duration(seconds: number): string {
   if (seconds < 90) return `${seconds} s`;
   if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
@@ -212,35 +222,76 @@ export function HeardPanel() {
       {activity.length === 0 ? (
         <p className="note">Nothing listened to in this period.</p>
       ) : (
-        <table className="results compact">
-          <thead>
-            <tr>
-              <th>Band</th>
-              <th>Listened</th>
-              <th>Decodes</th>
-              <th>Callsigns</th>
-              <th>Locators</th>
-              <th>Median SNR</th>
-              <th>Farthest</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activity.map((a) => (
-              <tr key={a.band}>
-                <th>{a.band}</th>
-                <td>{duration(a.listenedSeconds)}</td>
-                <td>{a.decodes}</td>
-                <td>{a.uniqueCallsigns}</td>
-                <td>{a.uniqueGrids}</td>
-                <td>{a.medianSnrDb === null ? "—" : `${a.medianSnrDb.toFixed(0)} dB`}</td>
-                <td>{a.maxDistanceKm === null ? "—" : `${a.maxDistanceKm.toFixed(0)} km`}</td>
+        <div className="scroll-x">
+          <table className="results compact">
+            <thead>
+              <tr>
+                <th rowSpan={2}>Band</th>
+                <th rowSpan={2}>Listened</th>
+                <th colSpan={2}>Decodes</th>
+                <th colSpan={2}>Stations</th>
+                <th colSpan={2}>SNR</th>
+                <th colSpan={3}>Distance</th>
+                <th colSpan={COMPASS.length}>Stations by direction</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+              <tr>
+                <th>Total</th>
+                <th>Per period</th>
+                <th>Callsigns</th>
+                <th>Locators</th>
+                <th>Median</th>
+                <th>90% under</th>
+                <th>Median</th>
+                <th>Farthest</th>
+                <th>Over 3000 km</th>
+                {COMPASS.map((point) => (
+                  <th key={point}>{point}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activity.map((a) => {
+                const largest = Math.max(...a.sectors);
+                return (
+                  <tr key={a.band}>
+                    <th>{a.band}</th>
+                    <td>{duration(a.listenedSeconds)}</td>
+                    <td>{a.decodes}</td>
+                    <td>{a.decodesPerPeriod === null ? "—" : a.decodesPerPeriod.toFixed(1)}</td>
+                    <td>
+                      {a.uniqueCallsigns}
+                      {a.previousPeriods > 0 && (
+                        <span
+                          className="hint"
+                          title={`In the same span before this one: ${a.previousUniqueCallsigns} callsigns in ${a.previousPeriods.toFixed(0)} periods of listening`}
+                        >
+                          {" "}
+                          (was {a.previousUniqueCallsigns})
+                        </span>
+                      )}
+                    </td>
+                    <td>{a.uniqueGrids}</td>
+                    <td>{db(a.medianSnrDb)}</td>
+                    <td>{db(a.p90SnrDb)}</td>
+                    <td>{km(a.medianDistanceKm)}</td>
+                    <td>{km(a.maxDistanceKm)}</td>
+                    <td>{a.longDistanceStations}</td>
+                    {a.sectors.map((count, i) => (
+                      <td key={COMPASS[i]} style={{ background: countShade(count, largest) }}>
+                        {count}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
       <p className="note">
-        This is observed activity, not a measurement of the ionosphere. It depends on who is on
+        Signal figures are over decodes; distance and direction figures count each station once.
+        "Per period" is decodes per transmit period listened. "Was" compares callsigns with the
+        same span just before. This is observed activity, not a measurement of the ionosphere. It depends on who is on
         the air, their power and antennas, and local noise. No signals heard does not mean a band
         is closed, and hearing a station does not mean it can hear you.
       </p>

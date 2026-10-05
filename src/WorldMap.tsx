@@ -4,11 +4,13 @@ import type { Feature, LineString } from "geojson";
 import { feature } from "topojson-client";
 import type { Topology } from "topojson-specification";
 import landTopology from "world-atlas/land-110m.json";
-import { Coverage, CoverageCell, LatLon } from "./types";
+import { Coverage, CoverageCell, HeardStation, LatLon } from "./types";
 import { shade } from "./tiers";
 
 const WIDTH = 760;
 const HEIGHT = 380;
+// How close the pointer must be to a heard station, in map units, to show it.
+const STATION_REACH = 9;
 const projection = geoEquirectangular().fitSize([WIDTH, HEIGHT], { type: "Sphere" });
 const path = geoPath(projection);
 const topology = landTopology as unknown as Topology;
@@ -32,6 +34,10 @@ function line(points: LatLon[]): string {
   return path(shape) ?? "";
 }
 
+function utcClock(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toISOString().slice(11, 16);
+}
+
 type Props = {
   from: LatLon | null;
   to: LatLon | null;
@@ -39,14 +45,19 @@ type Props = {
   month: number;
   clockHour: number;
   coverage: { data: Coverage; bandIndex: number } | null;
+  /** Stations this receiver has decoded, drawn over the coverage. */
+  heard: HeardStation[];
   /** When set, a click reports the position under the pointer. */
   picking: boolean;
   onPick: (position: LatLon) => void;
 };
 
-/** World map with the path, day and night, and optional coverage cells. */
-export function WorldMap({ from, to, longPath, month, clockHour, coverage, picking, onPick }: Props) {
-  const [hover, setHover] = useState<{ cell: CoverageCell; x: number; y: number } | null>(null);
+type Hover = { x: number; y: number; cell?: CoverageCell; station?: HeardStation };
+
+/** World map with the path, day and night, predicted coverage and heard stations. */
+export function WorldMap(props: Props) {
+  const { from, to, longPath, month, clockHour, coverage, heard, picking, onPick } = props;
+  const [hover, setHover] = useState<Hover | null>(null);
 
   const night = useMemo(() => {
     const [lon, lat] = subsolarPoint(month, clockHour);
@@ -61,13 +72,26 @@ export function WorldMap({ from, to, longPath, month, clockHour, coverage, picki
     return line([from, { lat: -lat, lon: lon + 180 }, to]);
   }, [from, to, longPath]);
 
-  function positionAt(event: MouseEvent<SVGSVGElement>): LatLon | null {
-    // The screen matrix accounts for the border and any letterboxing.
+  const stations = useMemo(
+    () =>
+      heard.map((station) => {
+        const [x, y] = projection([station.lon, station.lat]) ?? [0, 0];
+        return { station, x, y };
+      }),
+    [heard],
+  );
+
+  /** The pointer in map units, accounting for the border and any letterboxing. */
+  function pointAt(event: MouseEvent<SVGSVGElement>): [number, number] | null {
     const matrix = event.currentTarget.getScreenCTM();
     if (!matrix) return null;
     const { x, y } = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
-    const point = projection.invert?.([x, y]);
-    return point ? { lon: point[0], lat: point[1] } : null;
+    return [x, y];
+  }
+
+  function positionAt(point: [number, number]): LatLon | null {
+    const inverted = projection.invert?.(point);
+    return inverted ? { lon: inverted[0], lat: inverted[1] } : null;
   }
 
   function cellAt(position: LatLon): CoverageCell | undefined {
@@ -78,6 +102,17 @@ export function WorldMap({ from, to, longPath, month, clockHour, coverage, picki
         Math.abs(c.lat - position.lat) <= latStepDeg / 2 &&
         Math.abs(c.lon - position.lon) <= lonStepDeg / 2,
     );
+  }
+
+  function stationNear([px, py]: [number, number]): HeardStation | undefined {
+    let nearest: { station: HeardStation; distance: number } | undefined;
+    for (const { station, x, y } of stations) {
+      const distance = Math.hypot(x - px, y - py);
+      if (distance <= STATION_REACH && (!nearest || distance < nearest.distance)) {
+        nearest = { station, distance };
+      }
+    }
+    return nearest?.station;
   }
 
   const marker = (position: LatLon, label: string) => {
@@ -98,18 +133,21 @@ export function WorldMap({ from, to, longPath, month, clockHour, coverage, picki
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className={picking ? "picking" : undefined}
         role="img"
-        aria-label="World map showing the path, day and night, and coverage"
+        aria-label="World map showing the path, day and night, predicted coverage and heard stations"
         onClick={(event) => {
-          const position = picking && positionAt(event);
+          const point = picking && pointAt(event);
+          const position = point && positionAt(point);
           if (position) onPick(position);
         }}
         onPointerMove={(event) => {
-          const position = positionAt(event);
-          const cell = position && cellAt(position);
+          const point = pointAt(event);
+          const position = point && positionAt(point);
+          const station = point ? stationNear(point) : undefined;
+          const cell = position ? cellAt(position) : undefined;
           const box = event.currentTarget.getBoundingClientRect();
           setHover(
-            cell
-              ? { cell, x: event.clientX - box.left, y: event.clientY - box.top }
+            station || cell
+              ? { x: event.clientX - box.left, y: event.clientY - box.top, cell, station }
               : null,
           );
         }}
@@ -135,23 +173,42 @@ export function WorldMap({ from, to, longPath, month, clockHour, coverage, picki
         <path className="graticule" d={graticule} />
         <path className="night" d={night} />
         {route && <path className="route" d={route} />}
+        {stations.map(({ station, x, y }) => (
+          <circle key={`${station.band} ${station.callsign}`} className="heard-station" cx={x} cy={y} r={3.5} />
+        ))}
         {from && marker(from, "From")}
         {to && marker(to, "To")}
       </svg>
-      {hover && coverage && (
+      {hover && (
         <div className="tooltip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
-          <div className="tooltip-title">
-            {Math.abs(hover.cell.lat)}°{hover.cell.lat >= 0 ? "N" : "S"}{" "}
-            {Math.abs(hover.cell.lon)}°{hover.cell.lon >= 0 ? "E" : "W"} ·{" "}
-            {hover.cell.distanceKm.toFixed(0)} km
-          </div>
-          <div>
-            <strong>{(hover.cell.reliability[coverage.bandIndex] * 100).toFixed(0)}%</strong>{" "}
-            reliability
-          </div>
-          <div>
-            <strong>{hover.cell.snrDb[coverage.bandIndex].toFixed(0)} dB-Hz</strong> SNR
-          </div>
+          {hover.station && (
+            <>
+              <div>
+                <strong>{hover.station.callsign}</strong> {hover.station.grid} · {hover.station.band}
+              </div>
+              <div>
+                <strong>{hover.station.bestSnrDb} dB</strong> best SNR, {hover.station.decodes}{" "}
+                {hover.station.decodes === 1 ? "decode" : "decodes"}
+              </div>
+              <div className="tooltip-title">
+                {hover.station.distanceKm !== null && `${hover.station.distanceKm.toFixed(0)} km · `}
+                last heard {utcClock(hover.station.lastHeardUtc)} UTC
+              </div>
+            </>
+          )}
+          {hover.cell && coverage && (
+            <>
+              <div className="tooltip-title">
+                Predicted at {Math.abs(hover.cell.lat)}°{hover.cell.lat >= 0 ? "N" : "S"}{" "}
+                {Math.abs(hover.cell.lon)}°{hover.cell.lon >= 0 ? "E" : "W"} ·{" "}
+                {hover.cell.distanceKm.toFixed(0)} km
+              </div>
+              <div>
+                <strong>{(hover.cell.reliability[coverage.bandIndex] * 100).toFixed(0)}%</strong>{" "}
+                reliability, <strong>{hover.cell.snrDb[coverage.bandIndex].toFixed(0)} dB-Hz</strong> SNR
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

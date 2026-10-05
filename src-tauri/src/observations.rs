@@ -86,18 +86,74 @@ pub struct Observation {
     pub settling: bool,
 }
 
+/// Stations beyond this are counted as long distance.
+const LONG_DISTANCE_KM: f64 = 3000.0;
+/// Compass sectors of 45 degrees, the first centred on north.
+pub const SECTORS: usize = 8;
+
+/// Length of one transmit period in seconds.
+fn period_seconds(mode: &str) -> f64 {
+    match mode {
+        "FT4" => 7.5,
+        "WSPR" | "FST4W" => 120.0,
+        "JT65" | "JT9" | "JT4" | "Q65" => 60.0,
+        _ => 15.0,
+    }
+}
+
+/// The compass sector a bearing falls in: 0 is north, 1 north-east, and so on.
+fn sector(bearing_deg: f64) -> usize {
+    let width = 360.0 / SECTORS as f64;
+    ((bearing_deg + width / 2.0).rem_euclid(360.0) / width) as usize % SECTORS
+}
+
 /// What was heard on one band over a span of time.
+///
+/// Signal statistics are over decodes. Distance and direction statistics are
+/// over stations, each counted once, so a talkative station does not skew them.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BandActivity {
     pub band: String,
     pub dial_hz: u64,
     pub listened_seconds: i64,
+    /// Transmit periods listened to.
+    pub periods: f64,
     pub decodes: usize,
+    /// Decodes per period listened; `None` with no listening time on record.
+    pub decodes_per_period: Option<f64>,
     pub unique_callsigns: usize,
     pub unique_grids: usize,
     pub median_snr_db: Option<f64>,
+    /// The SNR that 90% of decodes are at or below.
+    pub p90_snr_db: Option<f64>,
+    /// Stations whose position is known.
+    pub located_stations: usize,
+    pub median_distance_km: Option<f64>,
     pub max_distance_km: Option<f64>,
+    pub long_distance_stations: usize,
+    /// Located stations per compass sector, north first, clockwise.
+    pub sectors: [usize; SECTORS],
+    /// The same counts for the equal span just before this one.
+    pub previous_unique_callsigns: usize,
+    pub previous_periods: f64,
+}
+
+/// One station heard, with where it is and how well it was received.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeardStation {
+    pub callsign: String,
+    pub grid: String,
+    /// Centre of the locator square.
+    pub lat: f64,
+    pub lon: f64,
+    pub band: String,
+    pub decodes: usize,
+    pub best_snr_db: i32,
+    pub last_heard_utc: i64,
+    pub distance_km: Option<f64>,
+    pub bearing_deg: Option<f64>,
 }
 
 pub struct Database {
@@ -115,6 +171,12 @@ fn median(values: &mut [f64]) -> Option<f64> {
     values.sort_by(f64::total_cmp);
     let middle = values.len() / 2;
     Some(if values.len() % 2 == 1 { values[middle] } else { (values[middle - 1] + values[middle]) / 2.0 })
+}
+
+/// The value that the given share of a sorted list is at or below.
+fn percentile(sorted: &[f64], share: f64) -> Option<f64> {
+    let rank = (share * sorted.len() as f64).ceil() as usize;
+    sorted.get(rank.max(1) - 1).copied()
 }
 
 impl Database {
@@ -275,76 +337,151 @@ impl Database {
             .map_err(text)
     }
 
-    /// Activity per band from `since_utc` on. A band that was listened to
-    /// but produced no decodes is included, with zero counts.
-    pub fn band_activity(&self, since_utc: i64) -> Result<Vec<BandActivity>, String> {
-        struct Tally {
-            dial_hz: u64,
-            listened_seconds: i64,
-            snrs: Vec<f64>,
-            callsigns: HashSet<String>,
-            grids: HashSet<String>,
-            max_distance_km: Option<f64>,
-        }
+    /// Per-band tallies for decodes and listening time in `[from, to)`.
+    fn tally(&self, from: i64, to: i64) -> Result<BTreeMap<String, Tally>, String> {
         let mut bands: BTreeMap<String, Tally> = BTreeMap::new();
-        let tally = |bands: &mut BTreeMap<String, Tally>, band: String, dial_hz: u64| {
-            bands.entry(band).or_insert_with(|| Tally {
-                dial_hz,
-                listened_seconds: 0,
-                snrs: Vec::new(),
-                callsigns: HashSet::new(),
-                grids: HashSet::new(),
-                max_distance_km: None,
-            });
-        };
-
         {
             let connection = self.lock();
             let mut statement = connection
                 .prepare(
-                    "SELECT band, dial_hz, MAX(start_utc, ?1), end_utc FROM listening_intervals
-                     WHERE end_utc > ?1",
+                    "SELECT band, dial_hz, mode, MAX(start_utc, ?1), MIN(end_utc, ?2)
+                     FROM listening_intervals WHERE end_utc > ?1 AND start_utc < ?2",
                 )
                 .map_err(text)?;
             let rows = statement
-                .query_map([since_utc], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
+                .query_map([from, to], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, i64>(4)?,
+                    ))
                 })
                 .map_err(text)?;
             for row in rows {
-                let (band, dial_hz, start, end) = row.map_err(text)?;
-                tally(&mut bands, band.clone(), dial_hz as u64);
-                bands.get_mut(&band).unwrap().listened_seconds += end - start;
+                let (band, dial_hz, mode, start, end) = row.map_err(text)?;
+                let entry = bands.entry(band).or_insert_with(|| Tally::new(dial_hz as u64));
+                entry.listened_seconds += end - start;
+                entry.periods += (end - start) as f64 / period_seconds(&mode);
             }
         }
 
-        for o in self.select("WHERE time_utc >= ?1 AND settling = 0", &[since_utc])? {
-            tally(&mut bands, o.band.clone(), o.dial_hz);
-            let entry = bands.get_mut(&o.band).unwrap();
+        // Oldest first, so each station ends up with its latest position.
+        let observations =
+            self.select("WHERE time_utc >= ?1 AND time_utc < ?2 AND settling = 0 ORDER BY time_utc, id", &[from, to])?;
+        for o in observations {
+            let entry = bands.entry(o.band).or_insert_with(|| Tally::new(o.dial_hz));
             entry.snrs.push(f64::from(o.snr_db));
-            entry.callsigns.extend(o.sender);
             entry.grids.extend(o.grid);
-            entry.max_distance_km = match (entry.max_distance_km, o.distance_km) {
-                (Some(a), Some(b)) => Some(a.max(b)),
-                (a, b) => a.or(b),
-            };
+            if let Some(sender) = o.sender {
+                let place = entry.stations.entry(sender).or_insert(None);
+                if let (Some(distance), Some(bearing)) = (o.distance_km, o.bearing_deg) {
+                    *place = Some((distance, bearing));
+                }
+            }
         }
+        Ok(bands)
+    }
 
-        let mut activity: Vec<BandActivity> = bands
+    /// Activity per band in `[since_utc, now)`. A band that was listened to
+    /// but produced no decodes is included, with zero counts.
+    pub fn band_activity(&self, since_utc: i64, now: i64) -> Result<Vec<BandActivity>, String> {
+        let mut previous = self.tally(since_utc - (now - since_utc), since_utc)?;
+        let mut activity: Vec<BandActivity> = self
+            .tally(since_utc, now)?
             .into_iter()
-            .map(|(band, mut t)| BandActivity {
-                band,
-                dial_hz: t.dial_hz,
-                listened_seconds: t.listened_seconds,
-                decodes: t.snrs.len(),
-                unique_callsigns: t.callsigns.len(),
-                unique_grids: t.grids.len(),
-                median_snr_db: median(&mut t.snrs),
-                max_distance_km: t.max_distance_km,
+            .map(|(band, mut t)| {
+                t.snrs.sort_by(f64::total_cmp);
+                let mut distances: Vec<f64> = t.stations.values().flatten().map(|(km, _)| *km).collect();
+                let mut sectors = [0; SECTORS];
+                for (_, bearing) in t.stations.values().flatten() {
+                    sectors[sector(*bearing)] += 1;
+                }
+                let before = previous.remove(&band);
+                BandActivity {
+                    dial_hz: t.dial_hz,
+                    listened_seconds: t.listened_seconds,
+                    periods: t.periods,
+                    decodes: t.snrs.len(),
+                    decodes_per_period: (t.periods > 0.0).then(|| t.snrs.len() as f64 / t.periods),
+                    unique_callsigns: t.stations.len(),
+                    unique_grids: t.grids.len(),
+                    p90_snr_db: percentile(&t.snrs, 0.9),
+                    median_snr_db: median(&mut t.snrs),
+                    located_stations: distances.len(),
+                    max_distance_km: distances.iter().copied().reduce(f64::max),
+                    long_distance_stations: distances.iter().filter(|km| **km > LONG_DISTANCE_KM).count(),
+                    median_distance_km: median(&mut distances),
+                    sectors,
+                    previous_unique_callsigns: before.as_ref().map_or(0, |b| b.stations.len()),
+                    previous_periods: before.as_ref().map_or(0.0, |b| b.periods),
+                    band,
+                }
             })
             .collect();
         activity.sort_by_key(|a| a.dial_hz);
         Ok(activity)
+    }
+
+    /// Stations heard since `since_utc` whose locator is known, optionally on
+    /// one band. Each appears once per band, at its most recent locator.
+    pub fn heard_stations(&self, since_utc: i64, band: Option<&str>) -> Result<Vec<HeardStation>, String> {
+        let mut stations: BTreeMap<(String, String), HeardStation> = BTreeMap::new();
+        let observations =
+            self.select("WHERE time_utc >= ?1 AND settling = 0 ORDER BY time_utc, id", &[since_utc])?;
+        for o in observations {
+            let (Some(callsign), Some(grid)) = (o.sender, o.grid) else { continue };
+            if band.is_some_and(|wanted| wanted != o.band) {
+                continue;
+            }
+            let Ok(position) = crate::geo::from_maidenhead(&grid) else { continue };
+            let station = stations.entry((o.band.clone(), callsign.clone())).or_insert(HeardStation {
+                callsign,
+                grid: String::new(),
+                lat: 0.0,
+                lon: 0.0,
+                band: o.band,
+                decodes: 0,
+                best_snr_db: i32::MIN,
+                last_heard_utc: 0,
+                distance_km: None,
+                bearing_deg: None,
+            });
+            station.grid = grid;
+            station.lat = position.lat;
+            station.lon = position.lon;
+            station.decodes += 1;
+            station.best_snr_db = station.best_snr_db.max(o.snr_db);
+            station.last_heard_utc = o.time_utc;
+            station.distance_km = o.distance_km;
+            station.bearing_deg = o.bearing_deg;
+        }
+        Ok(stations.into_values().collect())
+    }
+}
+
+/// Running totals for one band.
+struct Tally {
+    dial_hz: u64,
+    listened_seconds: i64,
+    periods: f64,
+    snrs: Vec<f64>,
+    grids: HashSet<String>,
+    /// Each station heard, with its latest distance and bearing if located.
+    stations: BTreeMap<String, Option<(f64, f64)>>,
+}
+
+impl Tally {
+    fn new(dial_hz: u64) -> Self {
+        Self {
+            dial_hz,
+            listened_seconds: 0,
+            periods: 0.0,
+            snrs: Vec::new(),
+            grids: HashSet::new(),
+            stations: BTreeMap::new(),
+        }
     }
 }
 
@@ -416,43 +553,134 @@ mod tests {
         assert_eq!(db.remembered_grid("N0NE").unwrap(), None);
     }
 
+    /// The Phase 5 exit test: every metric checked against a session small
+    /// enough to count by hand.
     #[test]
-    fn activity_counts_what_was_heard_and_how_long_was_listened() {
+    fn metrics_match_a_hand_counted_session() {
         let db = Database::in_memory().unwrap();
+        let heard = |time: i64, sender: &str, snr: i32, km: f64, bearing: f64, grid: &str| {
+            let mut o = observation(time, sender, snr);
+            o.message = format!("CQ {sender} {grid} {time}");
+            o.grid = Some(grid.into());
+            o.distance_km = Some(km);
+            o.bearing_deg = Some(bearing);
+            db.insert(&o).unwrap();
+        };
+
+        // The span under test is 1000-1600: ten minutes on 20 m, 40 periods of 15 s.
         let interval = db.open_interval(1000, 14_074_000, "20 m", "FT8", "test").unwrap();
         db.extend_interval(interval, 1600).unwrap();
-        db.extend_interval(interval, 1500).unwrap();
-        // Listened to 40 m too, and heard nothing there.
-        let quiet = db.open_interval(1600, 7_074_000, "40 m", "FT8", "test").unwrap();
-        db.extend_interval(quiet, 1900).unwrap();
-
-        for (time, sender, snr) in [(1010, "K1ABC", -10), (1025, "W9XYZ", -4), (1040, "K1ABC", -16)] {
-            db.insert(&observation(time, sender, snr)).unwrap();
-        }
-        let mut far = observation(1055, "JA1ZZZ", -20);
-        far.grid = Some("PM95".into());
-        far.distance_km = Some(11_000.0);
-        db.insert(&far).unwrap();
-        let mut settling = observation(1070, "VK2AAA", -1);
+        // K1ABC: three decodes, 1,500 km to the north-east.
+        heard(1010, "K1ABC", -10, 1500.0, 45.0, "FN42");
+        heard(1040, "K1ABC", -12, 1500.0, 45.0, "FN42");
+        heard(1070, "K1ABC", -8, 1500.0, 45.0, "FN42");
+        // W9XYZ: two decodes, 900 km just west of north.
+        heard(1025, "W9XYZ", -4, 900.0, 350.0, "EN37");
+        heard(1055, "W9XYZ", -6, 900.0, 350.0, "EN37");
+        // JA1ZZZ: one decode, 11,000 km to the north-west.
+        heard(1100, "JA1ZZZ", -20, 11_000.0, 330.0, "PM95");
+        // EA1AAA: two decodes, 6,800 km to the north-east.
+        heard(1130, "EA1AAA", -15, 6800.0, 60.0, "IN73");
+        heard(1160, "EA1AAA", -17, 6800.0, 60.0, "IN73");
+        // One free-text decode with no sender.
+        let mut free = observation(1190, "X", -22);
+        free.message = "TNX BOB 73 GL".into();
+        free.sender = None;
+        free.grid = None;
+        free.distance_km = None;
+        free.bearing_deg = None;
+        db.insert(&free).unwrap();
+        // One decode while the receiver was changing frequency: not counted.
+        let mut settling = observation(1200, "VK2AAA", -1);
         settling.settling = true;
         db.insert(&settling).unwrap();
 
-        let activity = db.band_activity(0).unwrap();
-        assert_eq!(activity.len(), 2);
-        let (forty, twenty) = (&activity[0], &activity[1]);
-        assert_eq!((forty.band.as_str(), forty.decodes, forty.listened_seconds), ("40 m", 0, 300));
-        assert_eq!(forty.median_snr_db, None);
+        // The ten minutes before: five minutes of listening, two stations.
+        let earlier = db.open_interval(700, 14_074_000, "20 m", "FT8", "test").unwrap();
+        db.extend_interval(earlier, 1000).unwrap();
+        heard(710, "K1ABC", -9, 1500.0, 45.0, "FN42");
+        heard(725, "N5AAA", -9, 1200.0, 270.0, "EM12");
 
-        assert_eq!(twenty.listened_seconds, 600);
-        assert_eq!(twenty.decodes, 4, "the settling decode is left out");
-        assert_eq!(twenty.unique_callsigns, 3);
-        assert_eq!(twenty.unique_grids, 2);
-        assert_eq!(twenty.median_snr_db, Some(-13.0));
-        assert_eq!(twenty.max_distance_km, Some(11_000.0));
+        let activity = db.band_activity(1000, 1600).unwrap();
+        assert_eq!(activity.len(), 1);
+        let a = &activity[0];
+        assert_eq!((a.band.as_str(), a.listened_seconds, a.periods), ("20 m", 600, 40.0));
+        // 3 + 2 + 1 + 2 + 1 free text = 9 decodes in 40 periods.
+        assert_eq!(a.decodes, 9);
+        assert_eq!(a.decodes_per_period, Some(0.225));
+        assert_eq!((a.unique_callsigns, a.unique_grids), (4, 4));
+        // SNRs in order: -22 -20 -17 -15 -12 -10 -8 -6 -4. Middle is -12; nine tenths of nine is the ninth.
+        assert_eq!(a.median_snr_db, Some(-12.0));
+        assert_eq!(a.p90_snr_db, Some(-4.0));
+        // Distances, one per station: 900, 1500, 6800, 11000.
+        assert_eq!(a.located_stations, 4);
+        assert_eq!(a.median_distance_km, Some(4150.0));
+        assert_eq!(a.max_distance_km, Some(11_000.0));
+        assert_eq!(a.long_distance_stations, 2);
+        // North: W9XYZ. North-east: K1ABC and EA1AAA. North-west: JA1ZZZ.
+        assert_eq!(a.sectors, [1, 2, 0, 0, 0, 0, 0, 1]);
+        // Before: 300 s is 20 periods, with K1ABC and N5AAA.
+        assert_eq!((a.previous_unique_callsigns, a.previous_periods), (2, 20.0));
+    }
 
-        // Only the part of an interval inside the window counts.
-        assert_eq!(db.band_activity(1300).unwrap()[1].listened_seconds, 300);
-        assert_eq!(db.band_activity(1300).unwrap()[1].decodes, 0);
+    #[test]
+    fn sectors_are_centred_on_the_compass_points() {
+        assert_eq!(sector(0.0), 0);
+        assert_eq!(sector(22.4), 0);
+        assert_eq!(sector(22.5), 1);
+        assert_eq!(sector(90.0), 2);
+        assert_eq!(sector(337.4), 7);
+        assert_eq!(sector(337.5), 0);
+        assert_eq!(sector(359.9), 0);
+    }
+
+    #[test]
+    fn a_band_listened_to_in_silence_is_reported_with_zero_counts() {
+        let db = Database::in_memory().unwrap();
+        let quiet = db.open_interval(1000, 7_074_000, "40 m", "FT4", "test").unwrap();
+        db.extend_interval(quiet, 1300).unwrap();
+        db.insert(&observation(1010, "K1ABC", -12)).unwrap();
+
+        let activity = db.band_activity(1000, 1600).unwrap();
+        let forty = &activity[0];
+        // FT4 periods are 7.5 s, so 300 s is 40 of them.
+        assert_eq!((forty.band.as_str(), forty.decodes, forty.periods), ("40 m", 0, 40.0));
+        assert_eq!(forty.decodes_per_period, Some(0.0));
+        assert_eq!((forty.median_snr_db, forty.max_distance_km), (None, None));
+        // 20 m has a decode but no listening time on record, so no rate.
+        assert_eq!(activity[1].decodes_per_period, None);
+
+        // Only the part of an interval inside the span counts.
+        assert_eq!(db.band_activity(1200, 1600).unwrap()[0].listened_seconds, 100);
+    }
+
+    #[test]
+    fn heard_stations_are_listed_once_per_band_at_their_latest_locator() {
+        let db = Database::in_memory().unwrap();
+        db.insert(&observation(100, "K1ABC", -12)).unwrap();
+        let mut louder = observation(130, "K1ABC", -3);
+        louder.message = "CQ K1ABC EN37".into();
+        louder.grid = Some("EN37".into());
+        db.insert(&louder).unwrap();
+        let mut other_band = observation(160, "K1ABC", -7);
+        other_band.band = "40 m".into();
+        other_band.dial_hz = 7_074_000;
+        db.insert(&other_band).unwrap();
+        let mut unplaced = observation(190, "W9XYZ", -7);
+        unplaced.grid = None;
+        unplaced.message = "K1ABC W9XYZ -07".into();
+        db.insert(&unplaced).unwrap();
+
+        let all = db.heard_stations(0, None).unwrap();
+        assert_eq!(all.len(), 2, "one per band; the station without a locator is left out");
+        let twenty = db.heard_stations(0, Some("20 m")).unwrap();
+        assert_eq!(twenty.len(), 1);
+        let k1abc = &twenty[0];
+        assert_eq!((k1abc.callsign.as_str(), k1abc.grid.as_str()), ("K1ABC", "EN37"));
+        assert_eq!((k1abc.decodes, k1abc.best_snr_db, k1abc.last_heard_utc), (2, -3, 130));
+        // EN37 spans 47-48 N and 94-92 W.
+        assert_eq!((k1abc.lat, k1abc.lon), (47.5, -93.0));
+        assert!(db.heard_stations(150, Some("20 m")).unwrap().is_empty());
     }
 
     #[test]
