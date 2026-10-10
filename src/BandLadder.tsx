@@ -130,7 +130,10 @@ export function BandLadder({ detail, hourIndex, onSelectHour, zone, nowClock, mo
           <RelScale />
           {LINES.map((l) => (
             <span key={l.key} title={l.long}>
-              <span className="swatch line" style={{ opacity: l.key === "muf" ? 1 : l.key === "fot" ? 0.7 : 0.45 }} />
+              <span
+                className={`swatch line${l.key === "luf" ? " dotted" : ""}`}
+                style={{ opacity: l.key === "fot" ? 0.75 : 1 }}
+              />
               {l.label}
               {l.key === "luf" && noLuf && <span className="hint">none: no frequency meets the mode's need</span>}
             </span>

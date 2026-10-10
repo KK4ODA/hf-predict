@@ -1129,6 +1129,12 @@ td.cell {
   background: var(--ink);
 }
 
+.swatch.line.dotted {
+  height: 0;
+  background: none;
+  border-top: 2.5px dotted var(--ink-2);
+}
+
 .swatch.night {
   background: var(--night);
   outline: 1px solid var(--rule);
@@ -1343,7 +1349,9 @@ td.cell {
 }
 
 .chart .line-luf {
-  stroke: var(--ink-3);
+  stroke: var(--ink-2);
+  stroke-dasharray: 0.5 5;
+  stroke-width: 2.5;
 }
 
 .chart .line-label {

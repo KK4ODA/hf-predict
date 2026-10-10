@@ -397,7 +397,7 @@ export function PlanPanel(props: Props) {
               ) : (
                 blockers.map((reason) => (
                   <li key={reason} className="bad">
-                    ✗ {reason}
+                    ✗ {reason.charAt(0).toUpperCase() + reason.slice(1)}
                   </li>
                 ))
               )}

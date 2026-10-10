@@ -118,7 +118,7 @@ export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
                   <td>
                     <div className="pair">
                       <Meter value={row.ft8Reliability} label="FT8" />
-                      <Meter value={row.modeReliability} label={modeLabel.split(" ")[0]} />
+                      {modeLabel.split(" ")[0] !== "FT8" && <Meter value={row.modeReliability} label={modeLabel.split(" ")[0]} />}
                     </div>
                   </td>
                   <td>

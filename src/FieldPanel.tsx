@@ -102,7 +102,16 @@ export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, zone
                 </div>
                 <div className="facts">
                   <span>
-                    Model <b>{pct(row.modeReliability)}</b> {modeLabel.split(" ")[0]}, <b>{pct(row.ft8Reliability)}</b> FT8
+                    Model{" "}
+                    {modeLabel.split(" ")[0] === "FT8" ? (
+                      <>
+                        <b>{pct(row.ft8Reliability)}</b> FT8
+                      </>
+                    ) : (
+                      <>
+                        <b>{pct(row.modeReliability)}</b> {modeLabel.split(" ")[0]}, <b>{pct(row.ft8Reliability)}</b> FT8
+                      </>
+                    )}
                   </span>
                   <span>
                     <Evidence tier={row.observed} /> {OBSERVED_WORDS[row.observed]}

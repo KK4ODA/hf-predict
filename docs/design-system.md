@@ -90,22 +90,26 @@ Both faces are bundled (latin subsets, about 140 kB), so the app looks the same 
 - **Stations** — both station editors, saved places, Dark or Daylight, keyboard shortcuts, updates, and the third-party licences.
 - **Engine** — what was run, with the input deck and output behind disclosures and copy buttons.
 
-![Field](screenshots/after-field-1024.jpg)
-![Best bands](screenshots/after-best-bands.jpg)
-![Through the day](screenshots/after-through-the-day.jpg)
-![Compare](screenshots/after-compare.jpg)
-![Map with coverage and heard stations](screenshots/after-map.jpg)
-![Heard](screenshots/after-heard.jpg)
-![Plan](screenshots/after-plan.jpg)
-![History](screenshots/after-history.jpg)
-![Conditions](screenshots/after-conditions.jpg)
-![Daylight theme](screenshots/after-daylight.jpg)
+Screenshots at 1366 × 768 with a real FT8 prediction from the engine (EM73tr to IO91wm, October) and recorded decodes:
+
+![Field](screenshots/field.png)
+![Best bands](screenshots/bands.png)
+![Through the day](screenshots/day.png)
+![Compare](screenshots/compare.png)
+![Map with coverage and heard stations](screenshots/map.png)
+![Heard](screenshots/heard.png)
+![Plan](screenshots/plan.png)
+![Radio](screenshots/radio.png)
+![History](screenshots/history.png)
+![Conditions](screenshots/conditions.png)
+![Daylight theme](screenshots/bands-daylight.png)
+![Through the day at 1920 × 1080](screenshots/day-wide.png)
 
 ## Visualisation conventions
 
 - Axis titles name the quantity and unit; ticks are clean numbers; gridlines are hairlines in a step off the surface, never dashed.
 - Time axes always show UTC with local time underneath; the "now" hour has a notch, the hour shown has a bone outline.
-- Lines are 2 px with a surface-coloured halo where they cross shaded cells; columns are at most 24 px wide with a rounded data end; dots are ringed in the surface colour.
+- Lines are 2 px with a surface-coloured halo where they cross shaded cells; the LUF is dotted so it reads apart from the FOT; columns are at most 24 px wide with a rounded data end; dots are ringed in the surface colour.
 - Text never wears a data colour; identity comes from a key beside plain ink.
 - Missing values break lines rather than drawing zero; an absent LUF is stated in the key.
 - Sparse data is shown as sparse: faint columns under 20 hours, hatched outlines for bands not listened to, "old" and "no data" on readings.
@@ -125,7 +129,7 @@ No calculation, threshold, recommendation rule or back-end command changed. The 
 
 ## Known limits
 
-- Checked in the browser preview with recorded data at 1024 × 700, 1366 × 768 and 1920 × 1080, in both themes; not yet looked at inside the installed app on Linux or macOS, or at Windows display scaling above 100 %.
+- Checked in the browser preview and in headless Edge with recorded data at 1024 × 700, 1366 × 768 and 1920 × 1080, in both themes; not yet looked at inside the installed app on Linux or macOS, or at Windows display scaling above 100 %.
 - `color-mix()` is used for a few washes (alert line, row hover); on an older Linux WebKitGTK they fall back to no tint.
 - The band ladder interpolates line height between band rows in frequency; above 28 MHz or below 3.6 MHz the line runs along the edge, and the exact values are in the tooltip and table.
 - Below 860 px the navigation becomes a scrolling row; the app is meant for laptop screens and larger.
