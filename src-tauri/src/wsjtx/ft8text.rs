@@ -80,8 +80,28 @@ fn report(token: &str) -> Option<i32> {
     valid.then(|| token.parse().ok()).flatten()
 }
 
+/// WSJT-X appends decoder notes after the message text: `?` for a
+/// low-confidence decode and `a1`…`a7` for the a-priori information it used.
+/// Message text is upper case, so a token with a lower-case letter is a note.
+fn is_annotation(token: &str) -> bool {
+    token == "?" || token.bytes().any(|b| b.is_ascii_lowercase())
+}
+
 pub fn parse(text: &str) -> Ft8Text {
-    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let mut tokens: Vec<&str> = text.split_whitespace().collect();
+    while tokens.last().is_some_and(|t| is_annotation(t)) {
+        tokens.pop();
+    }
+
+    // DXpedition (fox) form: HOUND1 RR73; HOUND2 <FOX> REPORT. The fox is the
+    // station that transmitted.
+    if tokens.len() == 5 && tokens[1] == "RR73;" {
+        if let (Some(to), Some(from), Some(report_db)) =
+            (callsign(tokens[2]), callsign(tokens[3]), report(tokens[4]))
+        {
+            return Ft8Text { kind: Kind::Report, from, to, grid: None, report_db: Some(report_db) };
+        }
+    }
 
     if tokens.first() == Some(&"CQ") {
         // CQ [modifier] CALL [GRID]
@@ -174,10 +194,27 @@ mod tests {
 
     #[test]
     fn free_text_and_unknown_forms_name_no_sender() {
-        for text in ["TNX BOB 73 GL", "K1ABC RR73; W9XYZ <KH1/KH7Z> -08", "", "CQ", "TU; K1ABC W9XYZ 579 MA"] {
+        for text in ["TNX BOB 73 GL", "", "CQ", "TU; K1ABC W9XYZ 579 MA", "K1ABC RR73; W9XYZ KH7Z"] {
             check(text, Kind::Other, None, None, None);
         }
         // Two callsigns with an exchange this parser does not model still name the sender.
         check("K1ABC W9XYZ 6A WI", Kind::Other, Some("W9XYZ"), Some("K1ABC"), None);
+    }
+
+    #[test]
+    fn decoder_notes_after_the_message_are_ignored() {
+        // As WSJT-X sends them: the text padded, then `?` and the AP type.
+        check("CQ W5RBD EL16                         a1", Kind::Cq, Some("W5RBD"), None, Some("EL16"));
+        check("CQ KQ4TDQ EL88                      ? a1", Kind::Cq, Some("KQ4TDQ"), None, Some("EL88"));
+        check("KB4OK K8OCN R+04                      a9", Kind::RogerReport, Some("K8OCN"), Some("KB4OK"), None);
+        check("CQ K1ABC FN42 ?", Kind::Cq, Some("K1ABC"), None, Some("FN42"));
+    }
+
+    #[test]
+    fn the_fox_is_the_sender_of_a_dxpedition_message() {
+        check("K1ABC RR73; W9XYZ <KH1/KH7Z> -08", Kind::Report, Some("KH1/KH7Z"), Some("W9XYZ"), None);
+        assert_eq!(parse("K1ABC RR73; W9XYZ <KH1/KH7Z> -08").report_db, Some(-8));
+        // An unresolved hash names nobody.
+        check("K1ABC RR73; W9XYZ <...> -08", Kind::Report, None, Some("W9XYZ"), None);
     }
 }
