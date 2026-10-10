@@ -369,7 +369,7 @@ A listening plan says which bands to listen on, in what order and for how long, 
 1. Tick *Aim at the To position* to plan for your path, or clear it to plan for the whole world from your position.
 2. Choose how long to plan for: 15 or 30 minutes, 1 hour or 2 hours.
 3. Click a band to leave it out, and click it again to put it back.
-4. Press *Make a plan*. The plan uses the hour shown in the path bar.
+4. Press *Make a plan*. The plan uses the hour shown in the path bar, so you can plan ahead for a later hour. A scan always plans for the current hour instead.
 
 Each band gets a priority made of three parts: its FT8 prediction (to the To position, or the share of the world an FT8 signal should reach), a bonus of up to 0.5 for what was heard on it in the last hour, and up to 1 more for how long it has gone without being listened to, reaching 1 after an hour. The top three bands get long dwells of 8 transmit periods, the next two standard dwells of 4, and the rest a short probe of 2. Each dwell has one extra period for retuning, and a period is 15 seconds. Every band comes round at least once in 20 minutes however poor its prediction, so a surprise opening is not missed for long. *Why this order* shows the figures for each band.
 
@@ -452,9 +452,9 @@ The *Scan automatically, receive only* panel on the Plan view lists anything tha
 - a From position;
 - the box *My antenna system (tuner, amplifier) is safe to retune on receive* ticked. Automatic band changes can make an external tuner or amplifier follow the radio.
 
-*Make a new plan when this one ends* is ticked to begin with. With it ticked, the scan makes a fresh plan from the same settings each time one runs out, and keeps going until you press **STOP SCAN**. Clear it to stop after one plan.
+*Make a new plan when this one ends* is ticked to begin with. With it ticked, the scan makes a fresh plan from the same settings each time one runs out, for the hour it is by then, and keeps going until you press **STOP SCAN**. Clear it to stop after one plan.
 
-The scan uses the settings above it on the Plan view (aiming, length and bands) and the hour shown in the path bar. It does not need a plan made first.
+The scan uses the settings above it on the Plan view (aiming, length and bands). It always plans for the current UTC hour and month, whatever hour the path bar shows, because it listens now: the first plan is for the hour the scan starts in, and each new plan for the hour it begins in. It does not need a plan made first.
 
 While it runs, the panel shows the band it is on and the next one, the number of retunes, the mode it holds the radio in and how often it had to set it back, how many plans it has renewed, and the frequency the radio will return to. The Radio reading in the status strip shows the band being scanned.
 
