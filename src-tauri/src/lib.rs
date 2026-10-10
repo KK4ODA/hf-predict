@@ -91,7 +91,7 @@ fn resolve_position(text: String) -> Result<LatLon, String> {
     geo::parse_position(&text)
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PlanQuery {
     tx_position: String,
@@ -106,6 +106,15 @@ struct PlanQuery {
     clock_hour: u32,
     minutes: u32,
     excluded_bands: Vec<String>,
+}
+
+impl PlanQuery {
+    /// The same plan for the UTC hour and month of a moment. A scan listens
+    /// now, so its plans are for now whatever hour the views show.
+    fn at(&self, unix_seconds: i64) -> PlanQuery {
+        let (year, month, _, clock_hour) = timeutil::civil(unix_seconds);
+        PlanQuery { year, month, clock_hour, ..self.clone() }
+    }
 }
 
 /// A listening plan from the FT8 prediction for the hour, what was heard in
@@ -222,7 +231,7 @@ struct ScanRequest {
 /// Starts moving the radio through a fresh plan. Refuses unless every rule holds.
 #[tauri::command(async)]
 fn scan_start(app: tauri::AppHandle, request: ScanRequest) -> Result<scanner::ScanStatus, String> {
-    let plan = make_plan(&app, &request.plan)?;
+    let plan = make_plan(&app, &request.plan.at(timeutil::now()))?;
     let state = app.state::<AppState>();
     let monitor = state
         .radio
@@ -237,7 +246,8 @@ fn scan_start(app: tauri::AppHandle, request: ScanRequest) -> Result<scanner::Sc
     let replan = request.keep_going.then(|| {
         let app = app.clone();
         let query = request.plan;
-        Box::new(move || make_plan(&app, &query)) as Box<dyn Fn() -> Result<scan::Plan, String> + Send>
+        // Each new plan is for the hour it begins in.
+        Box::new(move || make_plan(&app, &query.at(timeutil::now()))) as Box<dyn Fn() -> Result<scan::Plan, String> + Send>
     });
     let runner = scanner::Runner::start(plan, monitor, wsjtx, request.confirmed, replan)?;
     let status = runner.status();
@@ -831,6 +841,46 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn query() -> PlanQuery {
+        let station = station::presets().remove(0);
+        PlanQuery {
+            tx_position: "FM18".into(),
+            destination: None,
+            year: 2026,
+            month: 10,
+            ssn: Some(120.0),
+            tx_station: station.clone(),
+            rx_station: station,
+            clock_hour: 5,
+            minutes: 30,
+            excluded_bands: vec!["60 m".into()],
+        }
+    }
+
+    #[test]
+    fn a_scan_plans_for_the_hour_it_is_in() {
+        // Started at 05 UTC shown, the scan's plans follow the clock instead.
+        let first = query().at(timeutil::from_utc(2026, 10, 31, 22, 59));
+        assert_eq!((first.year, first.month, first.clock_hour), (2026, 10, 22));
+        let renewed = query().at(timeutil::from_utc(2026, 10, 31, 23, 30));
+        assert_eq!(renewed.clock_hour, 23);
+        // Past midnight at the month's end, the month moves on too.
+        let next_day = query().at(timeutil::from_utc(2026, 11, 1, 0, 10));
+        assert_eq!((next_day.year, next_day.month, next_day.clock_hour), (2026, 11, 0));
+        let new_year = query().at(timeutil::from_utc(2027, 1, 1, 0, 0));
+        assert_eq!((new_year.year, new_year.month, new_year.clock_hour), (2027, 1, 0));
+        // Everything else is kept as the operator set it.
+        assert_eq!(renewed.ssn, Some(120.0));
+        assert_eq!(renewed.minutes, 30);
+        assert_eq!(renewed.excluded_bands, vec!["60 m".to_string()]);
+        assert_eq!(renewed.tx_position, "FM18");
+    }
 }
 
 /// Helpers for tests that run the real engine built by `engines/voacapl/build.sh`.
