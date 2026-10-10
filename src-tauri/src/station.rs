@@ -118,19 +118,21 @@ pub struct Band {
     pub name: &'static str,
     /// Frequency used for predictions on this band.
     pub mhz: f64,
+    /// The usual FT8 dial frequency.
+    pub ft8_hz: u64,
 }
 
 /// Amateur HF bands inside the model's 2-30 MHz range. 160 m is below it.
 pub const HF_BANDS: [Band; 9] = [
-    Band { name: "80 m", mhz: 3.6 },
-    Band { name: "60 m", mhz: 5.36 },
-    Band { name: "40 m", mhz: 7.1 },
-    Band { name: "30 m", mhz: 10.13 },
-    Band { name: "20 m", mhz: 14.1 },
-    Band { name: "17 m", mhz: 18.1 },
-    Band { name: "15 m", mhz: 21.1 },
-    Band { name: "12 m", mhz: 24.9 },
-    Band { name: "10 m", mhz: 28.2 },
+    Band { name: "80 m", mhz: 3.6, ft8_hz: 3_573_000 },
+    Band { name: "60 m", mhz: 5.36, ft8_hz: 5_357_000 },
+    Band { name: "40 m", mhz: 7.1, ft8_hz: 7_074_000 },
+    Band { name: "30 m", mhz: 10.13, ft8_hz: 10_136_000 },
+    Band { name: "20 m", mhz: 14.1, ft8_hz: 14_074_000 },
+    Band { name: "17 m", mhz: 18.1, ft8_hz: 18_100_000 },
+    Band { name: "15 m", mhz: 21.1, ft8_hz: 21_074_000 },
+    Band { name: "12 m", mhz: 24.9, ft8_hz: 24_915_000 },
+    Band { name: "10 m", mhz: 28.2, ft8_hz: 28_074_000 },
 ];
 
 /// Amateur band edges in Hz, for naming the band a dial frequency is in.

@@ -116,6 +116,7 @@ pub const SECTORS: usize = 8;
 /// Length of one transmit period in seconds.
 fn period_seconds(mode: &str) -> f64 {
     match mode {
+        "FT2" => 3.75,
         "FT4" => 7.5,
         "WSPR" | "FST4W" => 120.0,
         "JT65" | "JT9" | "JT4" | "Q65" => 60.0,
@@ -251,6 +252,25 @@ impl Database {
             )
             .map(|_| ())
             .map_err(text)
+    }
+
+    /// When each band was last listened to: the end of its latest listening
+    /// interval or its latest decode, whichever is later.
+    pub fn last_listened_by_band(&self) -> Result<BTreeMap<String, i64>, String> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare(
+                "SELECT band, MAX(t) FROM (
+                     SELECT band, MAX(end_utc) AS t FROM listening_intervals GROUP BY band
+                     UNION ALL
+                     SELECT band, MAX(time_utc) AS t FROM observations GROUP BY band
+                 ) GROUP BY band",
+            )
+            .map_err(text)?;
+        let rows = statement
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(text)?;
+        rows.map(|r| r.map_err(text)).collect()
     }
 
     pub fn listening_intervals(&self) -> Result<Vec<ListeningInterval>, String> {

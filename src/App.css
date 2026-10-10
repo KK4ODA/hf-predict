@@ -858,3 +858,8 @@ table.compare td.left .hint {
 table.logs td.mono {
   word-break: break-all;
 }
+
+.plan-now {
+  font-size: 1.2rem;
+  margin: 10px 0 14px;
+}
