@@ -383,3 +383,27 @@ export type LogCheck = {
   newBytes: number;
   summary: ImportSummary | null;
 };
+
+export type PlanTier = "long" | "standard" | "probe";
+
+export type BandRank = {
+  band: string;
+  dialHz: number;
+  prediction: number;
+  observed: "strong" | "moderate" | "limited" | "none" | "notSampled";
+  minutesSinceListened: number | null;
+  priority: number;
+  tier: PlanTier | null;
+  reason: string;
+};
+
+export type PlanItem = { band: string; dialHz: number; startS: number; dwellS: number; tier: PlanTier };
+
+/** Which bands to listen on, in what order and for how long. */
+export type Plan = {
+  minutes: number;
+  bands: BandRank[];
+  hopBands: string[];
+  cycleS: number;
+  items: PlanItem[];
+};

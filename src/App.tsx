@@ -8,6 +8,7 @@ import { FieldPanel } from "./FieldPanel";
 import { FrequencyChart } from "./FrequencyChart";
 import { HeardPanel } from "./HeardPanel";
 import { HistoryPanel } from "./HistoryPanel";
+import { PlanPanel } from "./PlanPanel";
 import { HourTable } from "./HourTable";
 import { MapPanel } from "./MapPanel";
 import { PowerTable } from "./PowerTable";
@@ -16,7 +17,9 @@ import { UpdateCheck } from "./UpdateCheck";
 import { clockHour as clockOf } from "./tiers";
 import { localHour, zoneForMonth } from "./localtime";
 import {
+  ClockCheck,
   Conditions,
+  ListenerStatus,
   Mode,
   Options,
   PathOverview,
@@ -33,7 +36,9 @@ type RunState =
   | { kind: "done"; result: PathOverview }
   | { kind: "failed"; error: string };
 
-type Tab = "bands" | "compare" | "field" | "day" | "map" | "heard" | "history" | "conditions" | "engine";
+type Tab = "bands" | "compare" | "field" | "day" | "map" | "heard" | "plan" | "history" | "conditions" | "engine";
+
+const CLOCK_POLL_MS = 15000;
 
 const TABS: { id: Tab; label: string; needsResult: boolean }[] = [
   { id: "bands", label: "Best bands", needsResult: true },
@@ -42,6 +47,7 @@ const TABS: { id: Tab; label: string; needsResult: boolean }[] = [
   { id: "day", label: "Through the day", needsResult: true },
   { id: "map", label: "Map", needsResult: false },
   { id: "heard", label: "Heard", needsResult: false },
+  { id: "plan", label: "Plan", needsResult: false },
   { id: "history", label: "History", needsResult: false },
   { id: "conditions", label: "Conditions", needsResult: false },
   { id: "engine", label: "Engine", needsResult: true },
@@ -58,6 +64,7 @@ function App() {
   const [options, setOptions] = useState<Options | null>(null);
   const [userData, setUserData] = useState<UserData>({ locations: [], stations: [], logFiles: [] });
   const [conditions, setConditions] = useState<Conditions | null>(null);
+  const [clock, setClock] = useState<ClockCheck | null>(null);
   const [loadError, setLoadError] = useState("");
 
   const now = new Date();
@@ -92,6 +99,21 @@ function App() {
     invoke<Conditions>("conditions")
       .then(setConditions)
       .catch((error) => setLoadError(`Conditions: ${error}`));
+  }, []);
+
+  // The clock check from the listener, for a warning on every screen.
+  useEffect(() => {
+    let active = true;
+    const poll = () =>
+      invoke<ListenerStatus>("listener_status")
+        .then((s) => active && setClock(s.state === "listening" ? (s.tracker?.clock ?? null) : null))
+        .catch(() => active && setClock(null));
+    poll();
+    const timer = setInterval(poll, CLOCK_POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, []);
 
   async function saveUserData(next: UserData) {
@@ -332,6 +354,14 @@ function App() {
               ⚠ {conditions.storm}
             </p>
           )}
+          {clock && (clock.level === "warn" || clock.level === "alarm") && (
+            <p className="banner" role="alert">
+              ⚠ This computer's clock looks off
+              {clock.medianDtS !== null && ` by about ${Math.abs(clock.medianDtS).toFixed(1)} s`} (from{" "}
+              {clock.samples} decodes). FT8 needs it within about a second, FT4 and FT2 tighter
+              still; synchronise it, or decoding will suffer.
+            </p>
+          )}
           {run.kind === "failed" && <p className="error">Prediction failed: {run.error}</p>}
 
           {detail && (
@@ -469,6 +499,20 @@ function App() {
               logFiles={userData.logFiles}
               onLogFilesChange={(logFiles) => saveUserData({ ...userData, logFiles })}
               defaultRxPosition={txPosition}
+            />
+          )}
+
+          {tab === "plan" && (
+            <PlanPanel
+              txPosition={txPosition}
+              rxPosition={rxPosition}
+              year={year}
+              month={month}
+              ssn={ssn.trim() === "" ? null : Number(ssn)}
+              txStation={txStation}
+              rxStation={rxStation}
+              clockHour={clockHour}
+              zone={zone}
             />
           )}
 

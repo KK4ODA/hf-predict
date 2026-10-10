@@ -452,6 +452,12 @@ Three top bands at long dwell, two middle bands at standard dwell and two probes
 
 The scheduler is a pure function of predictions, observation history, clock and settings. That makes it testable by simulation without a radio.
 
+### Phase 7 results (2026-10-10)
+
+Shipped as the Plan tab, without radio control. `scan::plan` is the pure scheduler: priority = FT8 prediction (reliability to a destination, or the share of the world in reach at the hour) + a bonus for what was heard in the last hour (0.5 strong, 0.3 moderate, 0.1 limited) + staleness (0 just listened, 1 after an hour or never). The top three bands get long dwells, the next two standard, the rest probes, with the dwell lengths from the table above; one pass over nine bands is 12 min 15 s, inside the 20-minute probe floor, and the plan repeats passes for the requested length. The tab lists the bands to tick in WSJT-X's band hopping in priority order, and a schedule with a follow mode that shows the band to be on, the time left and whether WSJT-X is on it.
+
+Facts found while building it: WSJT-X's band hopping (stock and WSJT-X improved) only takes a set of bands or up to eight dial frequencies, hops on its own rhythm (WSJT-X improved: every other minute) and stops while Tx is enabled; there is no dwell setting, so a plan can choose its bands but not its timing until the app moves the radio itself (Phase 9). FT2 is not in stock WSJT-X 3.0: it is in WSJT-X improved 3.1.0 (open source, T/R period 3.75 s, half of FT4's) and, incompatibly, in the Decodium fork; its decode threshold is reported third-hand at about −12 dB (unverified) and it is said to need the clock within tens of milliseconds. Transmit-period counts now use 3.75 s for FT2, and the clock warning is shown on every screen.
+
 ---
 
 ## 12. Audio and clock

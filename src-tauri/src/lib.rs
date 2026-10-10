@@ -7,6 +7,7 @@ pub mod jsonfile;
 pub mod observations;
 pub mod predictor;
 pub mod propagation;
+pub mod scan;
 pub mod solar;
 pub mod spacewx;
 pub mod station;
@@ -17,6 +18,8 @@ pub mod wsjtx;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, Emitter, Manager};
@@ -84,6 +87,101 @@ fn predict_coverage(app: tauri::AppHandle, request: CoverageRequest) -> Result<C
 #[tauri::command]
 fn resolve_position(text: String) -> Result<LatLon, String> {
     geo::parse_position(&text)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanQuery {
+    tx_position: String,
+    /// Aim the plan at a destination; otherwise at the world.
+    destination: Option<String>,
+    year: i32,
+    month: u32,
+    ssn: Option<f64>,
+    tx_station: StationProfile,
+    rx_station: StationProfile,
+    /// UTC clock hour, 0 to 23.
+    clock_hour: u32,
+    minutes: u32,
+    excluded_bands: Vec<String>,
+}
+
+/// A listening plan from the FT8 prediction for the hour, what was heard in
+/// the last hour, and how long each band has gone unsampled.
+#[tauri::command(async)]
+fn listen_plan(app: tauri::AppHandle, query: PlanQuery) -> Result<scan::Plan, String> {
+    let engine = engine(&app)?;
+    let db = app.state::<AppState>().db()?.clone();
+    let now = timeutil::now();
+    let voacap_hour = if query.clock_hour == 0 { 24 } else { query.clock_hour };
+    let destination = query.destination.as_deref().map(str::trim).filter(|d| !d.is_empty());
+    let prediction: Vec<f64> = match destination {
+        Some(destination) => {
+            let overview = predictor::predict_overview(
+                &engine,
+                &PathRequest {
+                    tx_position: query.tx_position.clone(),
+                    rx_position: destination.to_string(),
+                    year: query.year,
+                    month: query.month,
+                    ssn: query.ssn,
+                    tx_station: query.tx_station.clone(),
+                    rx_station: query.rx_station.clone(),
+                    mode: station::Mode::Ft8,
+                    required_reliability_pct: 90.0,
+                    long_path: false,
+                },
+            )?;
+            let hours = &overview.short.prediction.run.prediction.hours;
+            let index = hours
+                .iter()
+                .position(|h| h.utc_hour == voacap_hour)
+                .ok_or("the prediction has no such hour")?;
+            overview.short.ft8_reliability[index].clone()
+        }
+        None => {
+            let coverage = coverage::predict_coverage(
+                &engine,
+                &CoverageRequest {
+                    tx_position: query.tx_position.clone(),
+                    year: query.year,
+                    month: query.month,
+                    ssn: query.ssn,
+                    tx_station: query.tx_station.clone(),
+                    rx_station: query.rx_station.clone(),
+                    mode: station::Mode::Ft8,
+                    required_reliability_pct: 90.0,
+                    utc_hour: voacap_hour,
+                },
+            )?;
+            let cells = coverage.cells.len().max(1) as f64;
+            (0..coverage.bands.len())
+                .map(|b| {
+                    let reached = coverage.cells.iter().filter(|c| c.reliability[b] >= scan::REACH_RELIABILITY).count();
+                    reached as f64 / cells
+                })
+                .collect()
+        }
+    };
+
+    let activity: BTreeMap<String, BandActivity> =
+        db.band_activity(now - 3600, now)?.into_iter().map(|a| (a.band.clone(), a)).collect();
+    let last = db.last_listened_by_band()?;
+    let inputs: Vec<scan::BandInput> = station::HF_BANDS
+        .iter()
+        .zip(prediction)
+        .map(|(band, prediction)| scan::BandInput {
+            band: band.name.to_string(),
+            dial_hz: band.ft8_hz,
+            prediction,
+            observed: activity
+                .get(band.name)
+                .map_or(compare::ObservedTier::NotSampled, |a| compare::observed_tier(a.periods, a.unique_callsigns)),
+            minutes_since_listened: last.get(band.name).map(|t| (now - t) as f64 / 60.0),
+            excluded: query.excluded_bands.iter().any(|b| b == band.name),
+        })
+        .collect();
+    Ok(scan::plan(&inputs, query.minutes))
 }
 
 #[derive(Deserialize)]
@@ -373,6 +471,7 @@ pub fn run() {
             conditions,
             refresh_conditions,
             calibration_report,
+            listen_plan,
             import_conditions,
             winlink_request,
             listener_status,
