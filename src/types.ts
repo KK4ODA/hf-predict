@@ -408,7 +408,31 @@ export type Plan = {
   items: PlanItem[];
 };
 
-export type RadioConfig = { enabled: boolean; host: string; port: number; pollSeconds: number };
+export type RadioConfig = {
+  enabled: boolean;
+  host: string;
+  port: number;
+  pollSeconds: number;
+  /** Start rigctld from this app rather than attach to one already running. */
+  startRigctld: boolean;
+  rigctldPath: string;
+  /** Hamlib's number for the radio. */
+  rigModel: number;
+  serialPort: string;
+  baud: number;
+};
+
+export type DaemonStatus = {
+  command: string;
+  pid: number;
+  running: boolean;
+  exitCode: number | null;
+  output: string;
+};
+
+export type FoundProgram = { path: string; version: string };
+
+export type RigModel = { number: number; maker: string; model: string };
 
 export type RadioState = {
   freqHz: number;
@@ -430,4 +454,5 @@ export type RadioStatus = {
   reads: number;
   errors: number;
   lastError: string | null;
+  daemon: DaemonStatus | null;
 };
