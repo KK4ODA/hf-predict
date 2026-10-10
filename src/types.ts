@@ -355,3 +355,16 @@ export type ImportSummary = {
   transmissions: number;
   notUnderstood: number;
 };
+
+export type CalibrationBin = { decodes: number; opportunities: number; heard: number };
+
+/** Hearing tallied against predicted reliability, in equal bins from 0 to 100%. */
+export type CalibrationReport = {
+  receiver: string;
+  circuits: number;
+  circuitsComputed: number;
+  decodesUsed: number;
+  decodesSkipped: number;
+  overall: CalibrationBin[];
+  byBand: Record<string, CalibrationBin[]>;
+};

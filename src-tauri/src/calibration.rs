@@ -9,6 +9,9 @@
 //! reliability. The shape is what matters: hearing should rise with
 //! predicted reliability, and a flat curve would mean the model tells the
 //! operator nothing.
+//!
+//! Predictions are cached in the observation database, so a second run only
+//! computes locators and months not seen before.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
@@ -18,16 +21,18 @@ use std::sync::Mutex;
 use serde::Serialize;
 
 use crate::geo::{self, LatLon};
-use crate::observations::Observation;
+use crate::observations::Database;
 use crate::predictor::{self, PathRequest};
 use crate::propagation::{PredictionRequest, PropagationEngine};
 use crate::solar;
-use crate::station::{Mode, StationProfile, HF_BANDS};
+use crate::station::{self, Mode, StationProfile, HF_BANDS, ISOTROPE};
 use crate::timeutil;
 
 /// Circuits per engine run.
 const RECEIVERS_PER_RUN: usize = 60;
 const MAX_WORKERS: usize = 8;
+/// What a heard station is assumed to run, since its equipment is unknown.
+const TYPICAL_POWER_WATTS: f64 = 100.0;
 /// Equal-width bins of predicted reliability from 0 to 1.
 pub const BINS: usize = 10;
 
@@ -45,8 +50,12 @@ pub struct Bin {
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
-    /// Paths and hours predicted.
+    /// Where the receiver was taken to be.
+    pub receiver: String,
+    /// Paths and hours with a prediction.
     pub circuits: usize,
+    /// Of those, computed in this run rather than read from the cache.
+    pub circuits_computed: usize,
     pub decodes_used: usize,
     /// Decodes without a locator, on a band the model does not cover, or in a
     /// month the sunspot table does not cover.
@@ -59,18 +68,35 @@ fn bin_of(reliability: f64) -> usize {
     ((reliability.clamp(0.0, 1.0) * BINS as f64) as usize).min(BINS - 1)
 }
 
-/// `rx_position` is where the observations were made. `station` stands for
-/// both ends: the heard stations' equipment is unknown, so the same typical
-/// station is assumed everywhere and only the shape of the result is read.
+/// The receiver is where most stored decodes were made, or `rx_position`
+/// when none carries a locator. Heard stations are assumed to run a typical
+/// power into an isotropic antenna, with the receiver's noise level
+/// `noise_db`, and only the shape of the result is read. `progress` is told
+/// how many engine runs are done out of how many.
 pub fn calibrate(
     engine: &(dyn PropagationEngine + Sync),
+    db: &Database,
     rx_position: &str,
-    station: &StationProfile,
-    observations: &[Observation],
+    noise_db: f64,
+    progress: &(dyn Fn(usize, usize) + Sync),
 ) -> Result<Report, String> {
+    let observations = db.all()?;
     let band_index: HashMap<&str, usize> =
         HF_BANDS.iter().enumerate().map(|(i, b)| (b.name, i)).collect();
     let mut report = Report::default();
+
+    let mut receivers: HashMap<&str, usize> = HashMap::new();
+    for grid in observations.iter().filter_map(|o| o.rx_grid.as_deref()) {
+        *receivers.entry(grid).or_default() += 1;
+    }
+    let receiver = receivers
+        .into_iter()
+        .max_by_key(|(_, n)| *n)
+        .map_or(rx_position.trim().to_string(), |(grid, _)| grid.to_string());
+    if receiver.is_empty() {
+        return Err("No decode carries the receiver's locator; enter your position in the From field.".into());
+    }
+    report.receiver = receiver.clone();
 
     // Which (day, hour) slots the receiver listened on each band, and which
     // of them carried a decode from each locator.
@@ -78,7 +104,16 @@ pub fn calibrate(
     let mut listening: HashMap<(i32, u32, usize), BTreeSet<Slot>> = HashMap::new();
     let mut heard: BTreeMap<(i32, u32, usize, String), BTreeSet<Slot>> = BTreeMap::new();
     let mut decodes: Vec<(i32, u32, u32, usize, String)> = Vec::new();
-    for o in observations {
+    for interval in db.listening_intervals()? {
+        let Some(&band) = band_index.get(interval.band.as_str()) else { continue };
+        let mut time = interval.start_utc - interval.start_utc.rem_euclid(3600);
+        while time < interval.end_utc {
+            let (year, month, day, hour) = timeutil::civil(time);
+            listening.entry((year, month, band)).or_default().insert((day, hour));
+            time += 3600;
+        }
+    }
+    for o in &observations {
         let (year, month, day, hour) = timeutil::civil(o.time_utc);
         let Some(&band) = band_index.get(o.band.as_str()) else {
             report.decodes_skipped += 1;
@@ -94,7 +129,16 @@ pub fn calibrate(
         decodes.push((year, month, hour, band, grid.to_string()));
     }
 
-    // One engine run per month, hour and group of locators.
+    // Predictions by month, from the cache where possible, else one engine
+    // run per hour and group of locators.
+    let preset = station::presets().into_iter().next().ok_or("no station presets")?;
+    let typical = |power_watts: f64, noise_db: f64| StationProfile {
+        name: "typical".into(),
+        power_watts,
+        antenna: ISOTROPE.into(),
+        noise_db,
+        ..preset.clone()
+    };
     let mut months: BTreeMap<(i32, u32), BTreeSet<&str>> = BTreeMap::new();
     for (year, month, _, grid) in heard.keys() {
         months.entry((*year, *month)).or_default().insert(grid);
@@ -105,28 +149,42 @@ pub fn calibrate(
         hour: u32,
         grids: Vec<&'a str>,
     }
-    let mut requests: BTreeMap<(i32, u32), PredictionRequest> = BTreeMap::new();
+    let mut table: HashMap<(i32, u32, u32, String), Vec<f64>> = HashMap::new();
+    let mut requests: BTreeMap<(i32, u32), (String, PredictionRequest)> = BTreeMap::new();
     let mut jobs = Vec::new();
     for ((year, month), grids) in &months {
         if solar::smoothed_ssn(*year, *month).is_none() {
             continue;
         }
         let plan = predictor::plan(&PathRequest {
-            tx_position: rx_position.to_string(),
-            rx_position: rx_position.to_string(),
+            tx_position: receiver.clone(),
+            rx_position: receiver.clone(),
             year: *year,
             month: *month,
             ssn: None,
-            tx_station: station.clone(),
-            rx_station: station.clone(),
+            tx_station: typical(TYPICAL_POWER_WATTS, noise_db),
+            rx_station: typical(TYPICAL_POWER_WATTS, noise_db),
             mode: Mode::Ft8,
             required_reliability_pct: 90.0,
             long_path: false,
         })?;
-        requests.insert((*year, *month), plan.engine_request);
-        let grids: Vec<&str> = grids.iter().copied().collect();
+        let key = format!(
+            "{}|{receiver}|ssn {:.1}|{TYPICAL_POWER_WATTS} W isotrope|noise {noise_db} dB",
+            engine.name(),
+            plan.ssn.value
+        );
+        let mut cached_hours: HashMap<&str, usize> = HashMap::new();
+        for ((hour, grid), reliability) in db.predicted_reliability(&key, *year, *month)? {
+            if let Some(&known) = grids.get(grid.as_str()) {
+                *cached_hours.entry(known).or_default() += 1;
+                table.insert((*year, *month, hour, grid), reliability);
+            }
+        }
+        requests.insert((*year, *month), (key, plan.engine_request));
+        let missing: Vec<&str> =
+            grids.iter().copied().filter(|g| cached_hours.get(g) != Some(&24)).collect();
         for hour in 1..=24 {
-            for chunk in grids.chunks(RECEIVERS_PER_RUN) {
+            for chunk in missing.chunks(RECEIVERS_PER_RUN) {
                 jobs.push(Job { year: *year, month: *month, hour, grids: chunk.to_vec() });
             }
         }
@@ -134,26 +192,29 @@ pub fn calibrate(
 
     // Workers take jobs from a shared counter until none are left.
     let next = AtomicUsize::new(0);
-    let table: Mutex<HashMap<(i32, u32, u32, String), Vec<f64>>> = Mutex::new(HashMap::new());
+    let done = AtomicUsize::new(0);
+    let computed: Mutex<Vec<(i32, u32, u32, String, Vec<f64>)>> = Mutex::new(Vec::new());
     let workers = std::thread::available_parallelism()
         .map_or(4, |n| n.get())
         .min(MAX_WORKERS)
         .min(jobs.len().max(1));
+    progress(0, jobs.len());
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 scope.spawn(|| -> Result<(), String> {
                     while let Some(job) = jobs.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        let base = &requests[&(job.year, job.month)];
+                        let (_, base) = &requests[&(job.year, job.month)];
                         let request = PredictionRequest { utc_hour: Some(job.hour), ..base.clone() };
                         let receivers: Vec<LatLon> =
                             job.grids.iter().map(|g| geo::from_maidenhead(g)).collect::<Result<_, _>>()?;
                         let hours = engine.predict_hour_to_many(&request, &receivers)?;
-                        let mut table = table.lock().map_err(|_| "a calibration worker panicked")?;
+                        let mut computed = computed.lock().map_err(|_| "a calibration worker panicked")?;
                         for (grid, hour) in job.grids.iter().zip(hours) {
                             let reliability = hour.frequencies.iter().map(|f| f.reliability).collect();
-                            table.insert((job.year, job.month, job.hour % 24, grid.to_string()), reliability);
+                            computed.push((job.year, job.month, job.hour % 24, grid.to_string(), reliability));
                         }
+                        progress(done.fetch_add(1, Ordering::Relaxed) + 1, jobs.len());
                     }
                     Ok(())
                 })
@@ -164,7 +225,17 @@ pub fn calibrate(
         }
         Ok::<(), String>(())
     })?;
-    let table = table.into_inner().map_err(|_| "a calibration worker panicked")?;
+    let computed = computed.into_inner().map_err(|_| "a calibration worker panicked")?;
+    report.circuits_computed = computed.len();
+    let mut to_store: BTreeMap<(i32, u32), Vec<(u32, String, Vec<f64>)>> = BTreeMap::new();
+    for (year, month, hour, grid, reliability) in computed {
+        to_store.entry((year, month)).or_default().push((hour, grid.clone(), reliability.clone()));
+        table.insert((year, month, hour, grid), reliability);
+    }
+    for ((year, month), rows) in &to_store {
+        let (key, _) = &requests[&(*year, *month)];
+        db.store_predicted_reliability(key, *year, *month, rows)?;
+    }
 
     let mut overall = vec![Bin::default(); BINS];
     let mut by_band: BTreeMap<String, Vec<Bin>> =
@@ -206,8 +277,8 @@ pub fn render(report: &Report) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "{} circuits predicted; {} decodes used, {} skipped",
-        report.circuits, report.decodes_used, report.decodes_skipped
+        "receiver {}; {} circuits predicted ({} computed now); {} decodes used, {} skipped",
+        report.receiver, report.circuits, report.circuits_computed, report.decodes_used, report.decodes_skipped
     );
     let mut table = |title: &str, bins: &[Bin]| {
         let decodes: usize = bins.iter().map(|b| b.decodes).sum();
@@ -244,9 +315,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::observations::Database;
     use crate::propagation::{EngineRun, FrequencyPrediction, HourPrediction};
-    use crate::station::{presets, ISOTROPE};
     use crate::wsjtx::tracker::{GridMemory, Heard};
 
     /// Paths north of 40° are good, the rest poor, on every band.
@@ -285,14 +354,7 @@ mod tests {
         }
     }
 
-    fn typical() -> StationProfile {
-        let mut station = presets()[0].clone();
-        station.antenna = ISOTROPE.into();
-        station
-    }
-
-    #[test]
-    fn counts_decodes_and_listening_hours_by_predicted_reliability() {
+    fn sample() -> Arc<Database> {
         let db = Arc::new(Database::in_memory().unwrap());
         let mut grids = GridMemory::new(db.clone());
         let at = |day: u32, df: u32, message: &'static str| Heard {
@@ -318,19 +380,51 @@ mod tests {
         ] {
             grids.store(&heard).unwrap();
         }
+        // Day 3: listened for ten minutes and heard nothing.
+        let id = db.open_interval(timeutil::from_utc(2026, 5, 3, 14, 0), 14_074_000, "20 m", "FT8", "test").unwrap();
+        db.extend_interval(id, timeutil::from_utc(2026, 5, 3, 14, 10)).unwrap();
+        db
+    }
 
-        let report = calibrate(&Stub, "EM73", &typical(), &db.all().unwrap()).unwrap();
+    #[test]
+    fn counts_decodes_and_listening_hours_by_predicted_reliability() {
+        let db = sample();
 
+        let report = calibrate(&Stub, &db, "", 145.0, &|_, _| {}).unwrap();
+
+        assert_eq!(report.receiver, "EM73");
         assert_eq!((report.decodes_used, report.decodes_skipped), (3, 1));
-        assert_eq!(report.circuits, 2 * 24);
+        assert_eq!((report.circuits, report.circuits_computed), (2 * 24, 2 * 24));
         let good = &report.overall[BINS - 1];
         let poor = &report.overall[0];
-        assert_eq!((good.decodes, good.opportunities, good.heard), (2, 2, 2));
-        assert_eq!((poor.decodes, poor.opportunities, poor.heard), (1, 2, 1));
+        assert_eq!((good.decodes, good.opportunities, good.heard), (2, 3, 2));
+        assert_eq!((poor.decodes, poor.opportunities, poor.heard), (1, 3, 1));
         assert_eq!(report.by_band.keys().collect::<Vec<_>>(), ["20 m"]);
         assert_eq!(report.by_band["20 m"][0], *poor);
         let text = render(&report);
-        assert!(text.contains("90–100%          2   66.7%                 2        2  100.0%"), "{text}");
+        assert!(
+            text.lines().any(|l| l.starts_with(" 90–100%") && l.ends_with("66.7%")),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_second_run_reads_the_cache_and_reports_progress() {
+        let db = sample();
+        let runs = Mutex::new(Vec::new());
+        let first = calibrate(&Stub, &db, "", 145.0, &|done, total| runs.lock().unwrap().push((done, total))).unwrap();
+        let second = calibrate(&Stub, &db, "", 145.0, &|_, _| {}).unwrap();
+
+        assert_eq!(first.circuits_computed, 48);
+        assert_eq!(second.circuits_computed, 0);
+        assert_eq!((second.circuits, second.overall), (first.circuits, first.overall));
+        let runs = runs.into_inner().unwrap();
+        assert_eq!(runs.first(), Some(&(0, 24)));
+        assert_eq!(runs.last(), Some(&(24, 24)));
+
+        // A different receiver noise level is a different assumption.
+        let other = calibrate(&Stub, &db, "", 155.0, &|_, _| {}).unwrap();
+        assert_eq!(other.circuits_computed, 48);
     }
 
     /// Runs over a real log: `HFP_ALL_TXT=path [HFP_RX_GRID=EM73] cargo test
@@ -355,11 +449,10 @@ mod tests {
         let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
         let db = Arc::new(Database::in_memory().unwrap());
         alltxt::import(&db, &text, Some(&rx_grid)).unwrap();
-        let observations = db.all().unwrap();
 
         let started = std::time::Instant::now();
-        let report = calibrate(&engine, &rx_grid, &typical(), &observations).unwrap();
-        println!("{} observations in {:.0} s", observations.len(), started.elapsed().as_secs_f64());
+        let report = calibrate(&engine, &db, &rx_grid, 145.0, &|_, _| {}).unwrap();
+        println!("{} observations in {:.0} s", db.count().unwrap(), started.elapsed().as_secs_f64());
         println!("{}", render(&report));
     }
 }
