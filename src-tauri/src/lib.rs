@@ -557,6 +557,24 @@ fn shut_down(app: &tauri::AppHandle, keep_rigctld: bool) {
     }
 }
 
+/// Before an update installs and restarts the app: stop any scan, which
+/// puts the radio back, and leave rigctld running for the new version to
+/// take back.
+#[tauri::command]
+fn prepare_for_restart(app: tauri::AppHandle) {
+    QUITTING.store(true, std::sync::atomic::Ordering::Relaxed);
+    shut_down(&app, true);
+}
+
+/// The update did not install after all: carry on as before.
+#[tauri::command]
+fn cancel_restart(app: tauri::AppHandle) {
+    QUITTING.store(false, std::sync::atomic::Ordering::Relaxed);
+    let state = app.state::<AppState>();
+    let config = state.radio_config.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    state.apply_radio(config);
+}
+
 /// Handles a request to close the window or quit. Returns true when the
 /// operator is being asked first and the request must be held back.
 fn ask_before_quitting(app: &tauri::AppHandle) -> bool {
@@ -777,6 +795,8 @@ pub fn run() {
             scan_status,
             radio_status,
             set_radio_config,
+            prepare_for_restart,
+            cancel_restart,
             find_rigctld,
             rig_models,
             serial_ports,

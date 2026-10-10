@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { StationEditor } from "./StationEditor";
-import { UpdateCheck } from "./UpdateCheck";
+import { UpdateCheck, Updater } from "./UpdateCheck";
 import { Options, SavedLocation, StationProfile, UserData } from "./types";
 import atkinsonLicence from "@fontsource/atkinson-hyperlegible-next/LICENSE?raw";
 import barlowLicence from "@fontsource/barlow-semi-condensed/LICENSE?raw";
@@ -21,6 +21,7 @@ type Props = {
   theme: Theme;
   onTheme: (theme: Theme) => void;
   version: string;
+  updater: Updater;
 };
 
 const SHORTCUTS: [string, string][] = [
@@ -32,7 +33,7 @@ const SHORTCUTS: [string, string][] = [
 
 /** Stations, saved places, appearance and updates. */
 export function SetupPanel(props: Props) {
-  const { options, userData, onUserData, txStation, rxStation, onTxStation, onRxStation, onUseLocation, theme, onTheme, version } = props;
+  const { options, userData, onUserData, txStation, rxStation, onTxStation, onRxStation, onUseLocation, theme, onTheme, version, updater } = props;
   const [newLocation, setNewLocation] = useState<SavedLocation>({ name: "", position: "" });
 
   const saveStation = (station: StationProfile) => {
@@ -142,9 +143,14 @@ export function SetupPanel(props: Props) {
         ))}
       </dl>
 
-      <h3>Updates</h3>
-      <p className="note">This is version {version}. Updates come from the project's GitHub releases and are signed.</p>
-      <UpdateCheck />
+      <h3 id="updates">Updates</h3>
+      <p className="note">
+        This is version {version}. The app looks for a newer release when it starts and every six hours,
+        and shows it at the top when there is one. Updates come from the project's GitHub releases and are
+        signed. A running scan stops and the radio goes back before the update installs; rigctld is left
+        running for the new version.
+      </p>
+      <UpdateCheck updater={updater} />
 
       <h3>About and credits</h3>
       <p className="note">HF Predict is free software under the Apache License 2.0.</p>
