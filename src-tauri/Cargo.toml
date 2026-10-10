@@ -1,6 +1,6 @@
 [package]
 name = "hf-predict"
-version = "0.11.5"
+version = "0.11.6"
 description = "Offline-first HF propagation prediction and measurement for amateur radio"
 authors = ["The hf-predict contributors"]
 license = "Apache-2.0"
