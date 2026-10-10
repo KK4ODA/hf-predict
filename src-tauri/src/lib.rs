@@ -688,6 +688,19 @@ fn start_wsjtx_when_ready(app: tauri::AppHandle) {
         let note = |text: String| {
             *state.wsjtx_launch.lock().unwrap_or_else(PoisonError::into_inner) = Some(text);
         };
+        // WSJT-X refuses a second copy of itself, with an error the operator
+        // has to dismiss, so never start one while it runs.
+        let already = || {
+            radio::daemon::is_running(&config.wsjtx_path).then(|| {
+                "WSJT-X is already running, so it was not started again. If it shows a rig \
+                 error, press Retry in WSJT-X."
+                    .to_string()
+            })
+        };
+        if let Some(text) = already() {
+            note(text);
+            return;
+        }
         note("Waiting for rigctld before starting WSJT-X…".into());
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(WSJTX_START_WAIT_S);
         loop {
@@ -709,6 +722,10 @@ fn start_wsjtx_when_ready(app: tauri::AppHandle) {
             .is_some_and(|d| d.seconds_since_heard <= scanner::REPORTING_WITHIN_S);
         if reporting {
             note("WSJT-X was already running and reporting, so it was not started again.".into());
+            return;
+        }
+        if let Some(text) = already() {
+            note(text);
             return;
         }
         match radio::daemon::launch(&config.wsjtx_path) {

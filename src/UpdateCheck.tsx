@@ -10,7 +10,7 @@ export type UpdateState =
   | { kind: "available"; update: Update }
   | { kind: "downloading"; version: string; done: number; total: number | null }
   | { kind: "installing"; version: string }
-  | { kind: "failed"; error: string };
+  | { kind: "failed"; error: string; during: "check" | "install" };
 
 /** The first look happens a little after start-up, then every six hours. */
 const FIRST_CHECK_MS = 5000;
@@ -41,7 +41,7 @@ export function useUpdater(): Updater {
             : { kind: "current" },
       );
     } catch (error) {
-      if (!quiet) setState({ kind: "failed", error: String(error) });
+      if (!quiet) setState({ kind: "failed", error: String(error), during: "check" });
     }
   }, []);
 
@@ -67,7 +67,7 @@ export function useUpdater(): Updater {
         }
       });
     } catch (error) {
-      setState({ kind: "failed", error: `The download failed: ${error}` });
+      setState({ kind: "failed", error: `The download failed: ${error}`, during: "install" });
       return;
     }
     setState({ kind: "installing", version: update.version });
@@ -80,7 +80,7 @@ export function useUpdater(): Updater {
       await relaunch();
     } catch (error) {
       await invoke("cancel_restart").catch(() => {});
-      setState({ kind: "failed", error: `The update could not be installed: ${error}` });
+      setState({ kind: "failed", error: `The update could not be installed: ${error}`, during: "install" });
     }
   }, []);
 
@@ -88,6 +88,22 @@ export function useUpdater(): Updater {
 }
 
 const megabytes = (bytes: number) => (bytes / 1048576).toFixed(1);
+
+/** One line on the state of an update, for the notice under the path bar. */
+export function updateNoticeText(state: UpdateState): string | null {
+  switch (state.kind) {
+    case "available":
+      return `Version ${state.update.version} is ready to install. Any scan stops and the radio goes back first; the app then restarts.`;
+    case "downloading":
+      return `Downloading ${state.version}: ${megabytes(state.done)}${state.total !== null ? ` of ${megabytes(state.total)}` : ""} MB…`;
+    case "installing":
+      return `Installing ${state.version}; the app will restart.`;
+    case "failed":
+      return state.during === "install" ? state.error : null;
+    default:
+      return null;
+  }
+}
 
 /** The update controls on the Stations view. */
 export function UpdateCheck({ updater }: { updater: Updater }) {

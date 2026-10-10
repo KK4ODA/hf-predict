@@ -20,6 +20,8 @@ type Props = {
   onEditPath: () => void;
   /** A newer version, when one is available. */
   update: string | null;
+  /** Draw attention to it until the operator has seen the notice. */
+  updateAttention: boolean;
   onUpdate: () => void;
   /** The best band now, when a path has been predicted. */
   children?: ReactNode;
@@ -54,7 +56,8 @@ function radio(status: RadioStatus | null, scan: ScanStatus | null): { state: He
 
 /** Readouts that matter on every screen: path, time, sun, receiver, radio. */
 export function StatusBar(props: Props) {
-  const { version, detail, longPath, conditions, live, nowS, onNavigate, onEditPath, update, onUpdate, children } = props;
+  const { version, detail, longPath, conditions, live, nowS, onNavigate, onEditPath, update, updateAttention, onUpdate, children } =
+    props;
   const zone = zoneAt(new Date(nowS * 1000));
   const utc = new Date(nowS * 1000).toISOString().slice(11, 19);
   const wwv = conditions?.products.find((p) => p.kind === "wwv");
@@ -72,7 +75,12 @@ export function StatusBar(props: Props) {
       </div>
 
       {update && (
-        <button type="button" className="sb-cell sb-update" onClick={onUpdate} title={`Version ${update} is available. Open the update`}>
+        <button
+          type="button"
+          className={`sb-cell sb-update${updateAttention ? " attention" : ""}`}
+          onClick={onUpdate}
+          title={`Version ${update} is available. Open the update`}
+        >
           <Dot state="busy" />
           <span className="sb-label">Update</span>
           <span className="sb-value small">{update}</span>

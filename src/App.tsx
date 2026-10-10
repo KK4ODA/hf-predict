@@ -14,7 +14,7 @@ import { PlanPanel } from "./PlanPanel";
 import { PowerTable } from "./PowerTable";
 import { RadioPanel } from "./RadioPanel";
 import { SetupPanel, Theme } from "./SetupPanel";
-import { useUpdater } from "./UpdateCheck";
+import { updateNoticeText, useUpdater } from "./UpdateCheck";
 import { Live, StatusBar } from "./StatusBar";
 import { useComparison, verdictIcon } from "./comparison";
 import { clockHour as clockOf } from "./tiers";
@@ -215,6 +215,8 @@ function App() {
   const live = useLive();
   const nowS = useNow();
   const updater = useUpdater();
+  // The version whose notice the operator put off with Later, this session only.
+  const [laterFor, setLaterFor] = useState<string | null>(null);
   const nowClock = new Date(nowS * 1000).getUTCHours();
   const fromRef = useRef<HTMLInputElement>(null);
   const autoRan = useRef(false);
@@ -339,6 +341,19 @@ function App() {
   const current = VIEWS.find((v) => v.id === view) ?? VIEWS[0];
   const profiles = [...options.presets, ...userData.stations];
   const ssnValue = ssn.trim() === "" ? null : Number(ssn);
+  const updateState = updater.state;
+  const updateVersion =
+    updateState.kind === "available"
+      ? updateState.update.version
+      : updateState.kind === "downloading" || updateState.kind === "installing"
+        ? updateState.version
+        : null;
+  const noticeText = updateNoticeText(updateState);
+  const showNotice = noticeText !== null && (updateVersion === null || updateVersion !== laterFor);
+  const openUpdates = () => {
+    setView("setup");
+    setTimeout(() => document.getElementById("updates")?.scrollIntoView({ block: "center" }), 50);
+  };
 
   const stationSelect = (station: StationProfile, set: (s: StationProfile) => void) => (
     <select
@@ -368,11 +383,9 @@ function App() {
         nowS={nowS}
         onNavigate={setView}
         onEditPath={() => fromRef.current?.focus()}
-        update={updater.state.kind === "available" ? updater.state.update.version : null}
-        onUpdate={() => {
-          setView("setup");
-          setTimeout(() => document.getElementById("updates")?.scrollIntoView({ block: "center" }), 50);
-        }}
+        update={updateState.kind === "available" ? updateState.update.version : null}
+        updateAttention={showNotice}
+        onUpdate={openUpdates}
       >
         {detail && <BestNow detail={detail} nowClock={nowClock} onOpen={() => setView("compare")} />}
       </StatusBar>
@@ -573,6 +586,29 @@ function App() {
                 {clock.samples} decodes. FT8 needs it within about a second, FT4 and FT2 tighter still.
                 Synchronise it, or decoding will suffer.
               </span>
+            </div>
+          )}
+          {showNotice && (
+            <div className="alertline notice" role="status">
+              <strong>Update</strong>
+              <span>{noticeText}</span>
+              {updateState.kind === "available" && (
+                <span className="alert-actions">
+                  <button type="button" className="primary" onClick={() => updater.install(updateState.update)}>
+                    Install and restart
+                  </button>
+                  <button type="button" className="quiet" onClick={() => setLaterFor(updateState.update.version)}>
+                    Later
+                  </button>
+                </span>
+              )}
+              {updateState.kind === "failed" && (
+                <span className="alert-actions">
+                  <button type="button" className="quiet" onClick={openUpdates}>
+                    Open Updates
+                  </button>
+                </span>
+              )}
             </div>
           )}
           {loadError && (
