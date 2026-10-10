@@ -1,3 +1,4 @@
+import { clockBoth } from "./localtime";
 import { useMemo, useState, MouseEvent } from "react";
 import { geoCircle, geoEquirectangular, geoGraticule, geoInterpolate, geoPath } from "d3-geo";
 import type { Feature, LineString } from "geojson";
@@ -32,10 +33,6 @@ function line(points: LatLon[]): string {
     geometry: { type: "LineString", coordinates: points.map((p) => [p.lon, p.lat]) },
   };
   return path(shape) ?? "";
-}
-
-function utcClock(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toISOString().slice(11, 16);
 }
 
 type Props = {
@@ -192,7 +189,7 @@ export function WorldMap(props: Props) {
               </div>
               <div className="tooltip-title">
                 {hover.station.distanceKm !== null && `${hover.station.distanceKm.toFixed(0)} km · `}
-                last heard {utcClock(hover.station.lastHeardUtc)} UTC
+                last heard {clockBoth(hover.station.lastHeardUtc)}
               </div>
             </>
           )}

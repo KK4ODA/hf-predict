@@ -13,6 +13,7 @@ import { PowerTable } from "./PowerTable";
 import { StationEditor } from "./StationEditor";
 import { UpdateCheck } from "./UpdateCheck";
 import { clockHour as clockOf } from "./tiers";
+import { localHour, zoneForMonth } from "./localtime";
 import {
   Conditions,
   Mode,
@@ -74,6 +75,7 @@ function App() {
   const [tab, setTab] = useState<Tab>("map");
   const [longPath, setLongPath] = useState(false);
   const [clockHour, setClockHour] = useState(now.getUTCHours());
+  const zone = zoneForMonth(year, month);
 
   useEffect(() => {
     getVersion().then(setVersion);
@@ -362,7 +364,8 @@ function App() {
               <select value={clockHour} onChange={(e) => setClockHour(Number(e.target.value))}>
                 {Array.from({ length: 24 }, (_, h) => (
                   <option key={h} value={h}>
-                    {String(h).padStart(2, "0")} UTC{h === now.getUTCHours() ? " (now)" : ""}
+                    {String(h).padStart(2, "0")} UTC · {localHour(h, zone)} {zone.name}
+                    {h === now.getUTCHours() ? " (now)" : ""}
                   </option>
                 ))}
               </select>
@@ -400,13 +403,14 @@ function App() {
                 other={other}
                 otherName={longPath ? "short" : "long"}
                 hourIndex={hourIndex}
+                zone={zone}
               />
-              <PowerTable detail={detail} hourIndex={hourIndex} />
+              <PowerTable detail={detail} hourIndex={hourIndex} zone={zone} />
             </>
           )}
 
           {tab === "compare" && detail && (
-            <ComparePanel detail={detail} hourIndex={hourIndex} modeLabel={modeLabel} />
+            <ComparePanel detail={detail} hourIndex={hourIndex} modeLabel={modeLabel} zone={zone} />
           )}
 
           {tab === "field" && detail && (
@@ -416,6 +420,7 @@ function App() {
               modeLabel={modeLabel}
               longPath={longPath}
               month={month}
+              zone={zone}
               conditions={conditions}
             />
           )}
@@ -426,8 +431,14 @@ function App() {
                 window={detail.window}
                 bands={detail.prediction.bands}
                 hourIndex={hourIndex}
+                zone={zone}
               />
-              <HourTable result={detail.prediction} hourIndex={hourIndex} onSelectHour={selectHour} />
+              <HourTable
+                result={detail.prediction}
+                hourIndex={hourIndex}
+                onSelectHour={selectHour}
+                zone={zone}
+              />
             </>
           )}
 
@@ -445,6 +456,7 @@ function App() {
               reliability={reliability}
               bands={options.bands}
               clockHour={clockHour}
+              zone={zone}
               onPickTx={setTxPosition}
               onPickRx={setRxPosition}
             />

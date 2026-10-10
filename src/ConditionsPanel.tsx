@@ -1,3 +1,4 @@
+import { localHour, stampBoth, Zone, zoneAt } from "./localtime";
 import { ChangeEvent, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -31,8 +32,12 @@ const OUTCOME: Record<Imported["outcome"], string> = {
 /** Kp at or above this is a geomagnetic storm; each step up is one G level. */
 const STORM_KP = 5;
 
-function utc(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+/** A forecast period such as "00-03UT" as "00–03 · 20–23", local hours after UTC. */
+function period(text: string, zone: Zone): string {
+  const [from, to] = text.replace("UT", "").split("-").map(Number);
+  if (Number.isNaN(from) || Number.isNaN(to)) return text;
+  const two = (h: number) => String(h).padStart(2, "0");
+  return `${two(from)}–${two(to)} · ${localHour(from, zone)}–${localHour(to % 24, zone)}`;
 }
 
 function age(seconds: number): string {
@@ -107,6 +112,7 @@ function SgasBody({ p }: { p: Sgas }) {
 }
 
 function ThreeDayBody({ p }: { p: ThreeDay }) {
+  const zone = zoneAt(new Date());
   const percent = (values: (number | null)[]) =>
     values.map((v, i) => <td key={i}>{v === null ? "—" : `${v}%`}</td>);
   return (
@@ -114,7 +120,7 @@ function ThreeDayBody({ p }: { p: ThreeDay }) {
       <table className="results compact">
         <thead>
           <tr>
-            <th>Kp, UTC</th>
+            <th>Kp, UTC · {zone.name}</th>
             {p.days.map((day) => (
               <th key={day}>{day}</th>
             ))}
@@ -123,7 +129,7 @@ function ThreeDayBody({ p }: { p: ThreeDay }) {
         <tbody>
           {p.kp.map((row) => (
             <tr key={row.period}>
-              <th>{row.period.replace("UT", "")}</th>
+              <th>{period(row.period, zone)}</th>
               {row.values.map((kp, i) => (
                 <td key={i} style={{ background: kpShade(kp) }}>
                   {kpText(kp)}
@@ -201,8 +207,8 @@ function ProductCard({ status }: { status: ProductStatus }) {
       {stored && status.ageSeconds !== null ? (
         <>
           <p className="provenance">
-            Issued {utc(stored.issued)} · {age(status.ageSeconds)} old · received by{" "}
-            {TRANSPORT[stored.transport]} {utc(stored.received)}
+            Issued {stampBoth(stored.issued)} · {age(status.ageSeconds)} old · received by{" "}
+            {TRANSPORT[stored.transport]} {stampBoth(stored.received)}
           </p>
           {stored.product.kind === "wwv" && <WwvBody p={stored.product} />}
           {stored.product.kind === "sgas" && <SgasBody p={stored.product} />}

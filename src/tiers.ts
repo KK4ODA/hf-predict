@@ -1,5 +1,7 @@
 // How a predicted reliability is described to the operator.
 
+import { localHour, Zone } from "./localtime";
+
 export type Tier = { key: "good" | "fair" | "poor" | "unlikely"; label: string; icon: string };
 
 const GOOD: Tier = { key: "good", label: "Good", icon: "●" };
@@ -37,13 +39,13 @@ export function hourLabel(utcHour: number): string {
 }
 
 /**
- * Runs of consecutive clock hours whose reliability is at least `FAIR_RELIABILITY`,
- * as "13–19" strings. `byClockHour[h]` is the reliability at h UTC. A run that
- * crosses midnight is joined.
+ * Runs of consecutive UTC clock hours whose reliability is at least
+ * `FAIR_RELIABILITY`, as [first, last] pairs. A run that crosses midnight is
+ * joined; a whole open day is one run from 0 to 23.
  */
-export function openWindows(byClockHour: number[]): string[] {
+export function openRuns(byClockHour: number[]): [number, number][] {
   const open = byClockHour.map((r) => r >= FAIR_RELIABILITY);
-  if (open.every(Boolean)) return ["all day"];
+  if (open.every(Boolean)) return [[0, 23]];
   const runs: [number, number][] = [];
   for (let h = 0; h < 24; h++) {
     if (!open[h]) continue;
@@ -54,6 +56,19 @@ export function openWindows(byClockHour: number[]): string[] {
   if (runs.length > 1 && runs[0][0] === 0 && runs[runs.length - 1][1] === 23) {
     runs[0][0] = runs.pop()![0];
   }
-  const two = (h: number) => String(h).padStart(2, "0");
-  return runs.map(([from, to]) => (from === to ? two(from) : `${two(from)}–${two(to)}`));
+  return runs;
+}
+
+/** The runs as "13–19, 22–01", in UTC when `zone` is null, else in local time. */
+function runsText(runs: [number, number][], zone: Zone | null): string {
+  const label = (h: number) => (zone ? localHour(h, zone) : String(h).padStart(2, "0"));
+  return runs.map(([from, to]) => (from === to ? label(from) : `${label(from)}–${label(to)}`)).join(", ");
+}
+
+/** "13–19 UTC · 09–15 EDT", "all day", or null when no hour is worth trying. */
+export function describeWindows(byClockHour: number[], zone: Zone): string | null {
+  const runs = openRuns(byClockHour);
+  if (runs.length === 0) return null;
+  if (runs[0][0] === 0 && runs[0][1] === 23) return "all day";
+  return `${runsText(runs, null)} UTC · ${runsText(runs, zone)} ${zone.name}`;
 }

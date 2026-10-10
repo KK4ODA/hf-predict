@@ -1,3 +1,4 @@
+import { hourBoth, Zone } from "./localtime";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WorldMap } from "./WorldMap";
@@ -17,6 +18,7 @@ type Props = {
   bands: Band[];
   /** UTC hour shown across the app, 0 to 23. */
   clockHour: number;
+  zone: Zone;
   onPickTx: (position: string) => void;
   onPickRx: (position: string) => void;
 };
@@ -81,7 +83,8 @@ function useHeard(shown: boolean, minutes: number, band: string): [HeardStation[
 
 /** The map: picking either end of the path, predicted coverage, heard stations. */
 export function MapPanel(props: Props) {
-  const { txPosition, rxPosition, year, month, ssn, txStation, rxStation, mode, reliability, clockHour } = props;
+  const { txPosition, rxPosition, year, month, ssn, txStation, rxStation, mode, reliability, clockHour, zone } =
+    props;
   const from = useResolved(txPosition);
   const to = useResolved(rxPosition);
   const [picking, setPicking] = useState<"from" | "to" | null>(null);
@@ -207,7 +210,7 @@ export function MapPanel(props: Props) {
       {coverage.kind === "done" && (
         <p className="note">
           Shading: predicted reliability of reaching a station like "{rxStation.name}" from the
-          From position on {band.name} at {String(clockHour).padStart(2, "0")} UTC, in{" "}
+          From position on {band.name} at {hourBoth(clockHour, zone)}, in{" "}
           {coverage.data.latStepDeg}° by {coverage.data.lonStepDeg}° cells, with antennas aimed to
           within 22.5° of each cell.
         </p>
