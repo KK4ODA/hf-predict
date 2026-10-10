@@ -498,8 +498,32 @@ table.bands th:nth-child(2) {
   border-radius: 6px;
 }
 
+.map svg {
+  cursor: grab;
+  touch-action: none;
+}
+
+.map svg:active {
+  cursor: grabbing;
+}
+
 .map svg.picking {
   cursor: crosshair;
+}
+
+.map-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.map-controls button {
+  min-width: 30px;
+  padding: 2px 8px;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .map .sea {
