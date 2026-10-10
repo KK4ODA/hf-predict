@@ -17,8 +17,10 @@ const LAT_STEP_DEG: f64 = 10.0;
 const LON_STEP_DEG: f64 = 15.0;
 /// Cells this close to the transmitter are left out: the model predicts
 /// sky-wave paths, not ground wave.
-const MIN_DISTANCE_KM: f64 = 100.0;
+pub const MIN_DISTANCE_KM: f64 = 100.0;
 const MAX_WORKERS: usize = 16;
+/// Receivers per engine run, so large sets spread over the workers.
+const RECEIVERS_PER_RUN: usize = 60;
 /// One engine run serves every cell whose antenna bearings fall in the same
 /// sectors, with the antennas aimed at the sector centres. At 45 degrees a
 /// dipole is never more than 22.5 degrees off, under 1 dB.
@@ -111,6 +113,81 @@ fn group_by_sector(tx: LatLon, centres: &[LatLon], tx_period: f64, rx_period: f6
     groups.into_values().collect()
 }
 
+/// Planning a path to one point validates the rest of the input and gives
+/// the engine request every point of an area prediction shares.
+pub(crate) fn plan_area(request: &CoverageRequest, any_point: LatLon) -> Result<predictor::Plan, String> {
+    predictor::plan(&PathRequest {
+        tx_position: request.tx_position.clone(),
+        rx_position: format!("{:.3}, {:.3}", any_point.lat, any_point.lon),
+        year: request.year,
+        month: request.month,
+        ssn: request.ssn,
+        tx_station: request.tx_station.clone(),
+        rx_station: request.rx_station.clone(),
+        mode: request.mode,
+        required_reliability_pct: request.required_reliability_pct,
+        long_path: false,
+    })
+}
+
+/// Predicts from `tx` to every point at the hour in `base`, with both
+/// antennas aimed at the centre of each point's sector. Points in the same
+/// sectors share engine runs, which several workers take in turn.
+pub(crate) fn predict_points(
+    engine: &(dyn PropagationEngine + Sync),
+    request: &CoverageRequest,
+    base: &PredictionRequest,
+    tx: LatLon,
+    points: &[LatLon],
+) -> Result<Vec<HourPrediction>, String> {
+    let groups = group_by_sector(
+        tx,
+        points,
+        station::azimuth_period_deg(&request.tx_station.antenna),
+        station::azimuth_period_deg(&request.rx_station.antenna),
+    );
+    let runs: Vec<(&Group, &[usize])> =
+        groups.iter().flat_map(|g| g.members.chunks(RECEIVERS_PER_RUN).map(move |chunk| (g, chunk))).collect();
+    let predict_run = |(group, members): &(&Group, &[usize])| -> Result<Vec<HourPrediction>, String> {
+        let mut request = base.clone();
+        request.tx_antenna.bearing_deg = group.tx_bearing_deg;
+        request.rx_antenna.bearing_deg = group.rx_bearing_deg;
+        let receivers: Vec<LatLon> = members.iter().map(|&i| points[i]).collect();
+        engine.predict_hour_to_many(&request, &receivers)
+    };
+
+    // Workers take runs from a shared counter until none are left.
+    let next = AtomicUsize::new(0);
+    let predicted: Mutex<Vec<Option<HourPrediction>>> = Mutex::new(vec![None; points.len()]);
+    let workers = std::thread::available_parallelism()
+        .map_or(4, |n| n.get())
+        .min(MAX_WORKERS)
+        .min(runs.len().max(1));
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| -> Result<(), String> {
+                    while let Some(run) = runs.get(next.fetch_add(1, Ordering::Relaxed)) {
+                        let hours = predict_run(run)?;
+                        let mut predicted = predicted.lock().map_err(|_| "a coverage worker panicked")?;
+                        for (&i, hour) in run.1.iter().zip(hours) {
+                            predicted[i] = Some(hour);
+                        }
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        handles.into_iter().try_for_each(predictor::join)
+    })?;
+    predicted
+        .into_inner()
+        .map_err(|_| "a coverage worker panicked")?
+        .into_iter()
+        .map(|hour| hour.ok_or_else(|| "a point was not predicted".to_string()))
+        .collect()
+}
+
 pub fn predict_coverage(
     engine: &(dyn PropagationEngine + Sync),
     request: &CoverageRequest,
@@ -121,67 +198,14 @@ pub fn predict_coverage(
         .filter(|&centre| geo::distance_km(tx, centre) >= MIN_DISTANCE_KM)
         .collect();
 
-    // Planning a path to one cell validates the rest of the input and gives
-    // the engine request every cell shares.
-    let plan = predictor::plan(&PathRequest {
-        tx_position: request.tx_position.clone(),
-        rx_position: format!("{:.3}, {:.3}", centres[0].lat, centres[0].lon),
-        year: request.year,
-        month: request.month,
-        ssn: request.ssn,
-        tx_station: request.tx_station.clone(),
-        rx_station: request.rx_station.clone(),
-        mode: request.mode,
-        required_reliability_pct: request.required_reliability_pct,
-        long_path: false,
-    })?;
+    let plan = plan_area(request, centres[0])?;
     let base = PredictionRequest { utc_hour: Some(request.utc_hour), ..plan.engine_request };
-
-    let groups = group_by_sector(
-        tx,
-        &centres,
-        station::azimuth_period_deg(&request.tx_station.antenna),
-        station::azimuth_period_deg(&request.rx_station.antenna),
-    );
-    let predict_group = |group: &Group| -> Result<Vec<HourPrediction>, String> {
-        let mut request = base.clone();
-        request.tx_antenna.bearing_deg = group.tx_bearing_deg;
-        request.rx_antenna.bearing_deg = group.rx_bearing_deg;
-        let receivers: Vec<LatLon> = group.members.iter().map(|&i| centres[i]).collect();
-        engine.predict_hour_to_many(&request, &receivers)
-    };
-
-    // Workers take groups from a shared counter until none are left.
-    let next = AtomicUsize::new(0);
-    let predicted: Mutex<Vec<Option<HourPrediction>>> = Mutex::new(vec![None; centres.len()]);
-    let workers = std::thread::available_parallelism()
-        .map_or(4, |n| n.get())
-        .min(MAX_WORKERS)
-        .min(groups.len());
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..workers)
-            .map(|_| {
-                scope.spawn(|| -> Result<(), String> {
-                    while let Some(group) = groups.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        let hours = predict_group(group)?;
-                        let mut predicted =
-                            predicted.lock().map_err(|_| "a coverage worker panicked")?;
-                        for (&i, hour) in group.members.iter().zip(hours) {
-                            predicted[i] = Some(hour);
-                        }
-                    }
-                    Ok(())
-                })
-            })
-            .collect();
-        handles.into_iter().try_for_each(predictor::join)
-    })?;
+    let predicted = predict_points(engine, request, &base, tx, &centres)?;
 
     let cells = centres
         .iter()
-        .zip(predicted.into_inner().map_err(|_| "a coverage worker panicked")?)
+        .zip(predicted)
         .map(|(&centre, hour)| {
-            let hour = hour.ok_or("a coverage cell was not predicted")?;
             Ok(CoverageCell {
                 lat: centre.lat,
                 lon: centre.lon,

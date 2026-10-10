@@ -1822,6 +1822,84 @@ table.compare .rec .caution {
   border-top: 1px solid var(--rule);
 }
 
+/* Most contacts: the count is the answer, so it reads as a figure. */
+table.contacts td.figure {
+  font-family: var(--font-figure);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+table.contacts th,
+table.contacts td {
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  table.contacts .dist-col {
+    display: none;
+  }
+}
+
+/* Through the day for Most contacts: the hour shown is outlined in bone,
+   as on the band ladder, and the current hour carries a notch. */
+/* Twenty-four hours share the width, so the whole day fits without
+   scrolling down to 1024 px. */
+table.day-reach {
+  width: 100%;
+  table-layout: fixed;
+}
+
+table.day-reach col.band-col {
+  width: 56px;
+}
+
+table.day-reach th,
+table.day-reach td {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+table.day-reach td.cell {
+  min-width: 0;
+  font-size: 12px;
+  text-align: center;
+}
+
+table.day-reach th.hour {
+  cursor: pointer;
+  text-align: center;
+  font-family: var(--font-figure);
+}
+
+table.day-reach th.hour.shown {
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--ink), inset -2px 0 0 var(--ink), inset 0 2px 0 var(--ink);
+}
+
+table.day-reach th.hour.now {
+  background: linear-gradient(var(--ink-3), var(--ink-3)) top center / 2px 5px no-repeat;
+}
+
+table.day-reach th.hour.shown.now {
+  background: linear-gradient(var(--ink), var(--ink)) top center / 2px 7px no-repeat;
+}
+
+table.day-reach td.cell.shown {
+  box-shadow: inset 2px 0 0 var(--ink), inset -2px 0 0 var(--ink);
+}
+
+table.day-reach thead tr + tr th {
+  text-align: center;
+  font-size: 11px;
+}
+
+table.day-reach tr.counted td {
+  text-align: center;
+  font-size: 11px;
+}
+
 /* The first line of a heard cell is one phrase; only the examples wrap. */
 table.compare .heardcell > span:first-child {
   white-space: nowrap;

@@ -1,5 +1,6 @@
 pub mod calibration;
 pub mod compare;
+pub mod contacts;
 pub mod coverage;
 pub mod engine;
 pub mod geo;
@@ -509,6 +510,21 @@ struct HearingYourArea {
     stations: Vec<observations::HearingStation>,
 }
 
+/// Which band reaches the most stations in the log, by hour.
+#[tauri::command(async)]
+fn most_contacts(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    query: contacts::ContactsQuery,
+) -> Result<contacts::ContactsReport, String> {
+    let engine = engine(&app)?;
+    let own_call = state.own_call();
+    let progress = |done: usize, total: usize| {
+        let _ = app.emit("contacts-progress", CalibrationProgress { done, total });
+    };
+    contacts::most_contacts(&engine, state.db()?, &query, own_call.as_deref(), timeutil::now(), &progress)
+}
+
 /// Distant stations heard reporting this station or stations near it.
 #[tauri::command]
 fn hearing_your_area(
@@ -895,6 +911,7 @@ pub fn run() {
             band_activity,
             heard_stations,
             hearing_your_area,
+            most_contacts,
             compare_path,
             find_log_files,
             log_checks,
