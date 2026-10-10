@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { hourBoth, localClock, Zone } from "./localtime";
 import { ListenerStatus, Plan, ScanStatus, StationProfile } from "./types";
-import { Health, Pill } from "./ui";
+import { Health, Pill, modeName } from "./ui";
 
 type Props = {
   txPosition: string;
@@ -381,8 +381,10 @@ export function PlanPanel(props: Props) {
             <p className={scan.state === "paused" ? "caution" : undefined}>{scan.detail}</p>
             <p className="hint">
               {scan.retunes} retunes
+              {scan.mode && `, held in ${modeName(scan.mode)}`}
+              {scan.modeSets > 0 && ` (set back ${scan.modeSets} ${scan.modeSets === 1 ? "time" : "times"})`}
               {scan.plansRun > 0 && `, ${scan.plansRun} plans renewed`}
-              {scan.saved && `; the radio goes back to ${mhz(scan.saved.freqHz)} MHz when the scan stops`}
+              {scan.saved && `; the radio goes back to ${mhz(scan.saved.freqHz)} MHz ${modeName(scan.saved.mode)} when the scan stops`}
             </p>
             <button type="button" className="stop" onClick={stopScan}>
               STOP SCAN
@@ -426,11 +428,12 @@ export function PlanPanel(props: Props) {
           </>
         )}
         <p className="note">
-          The app sets the frequency and nothing else: never the mode, never transmit. It retunes
-          only while WSJT-X is receiving with transmit disabled, pauses as soon as you enable
-          transmit or the radio keys, reads the radio back after every change and stops if the
-          mode or frequency is not what it asked for or split comes on, and puts the radio back
-          where it was whenever it stops. Make a plan first; the scan follows a fresh plan made from
+          The app sets the frequency, and the mode chosen on the Radio view (DATA-U unless you
+          change it) when a band change brings the radio up in another. It never transmits. It
+          retunes only while WSJT-X is receiving with transmit disabled, pauses as soon as you
+          enable transmit or the radio keys, reads the radio back after every change and stops if
+          the frequency or mode is not what it asked for or split comes on, and puts the radio
+          back where it was, frequency and mode, whenever it stops. Make a plan first; the scan follows a fresh plan made from
           the same settings. WSJT-X must be on <em>Hamlib NET rigctl</em> with "Monitor returns to
           last used frequency" off.
         </p>

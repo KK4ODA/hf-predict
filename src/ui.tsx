@@ -134,6 +134,11 @@ export function Pill({ state, children }: { state: Health; children: ReactNode }
 }
 
 /** A duration in plain words: 40 s, 12 min, 3 h, 2 days. */
+const MODE_NAMES: Record<string, string> = { PKTUSB: "DATA-U", PKTLSB: "DATA-L", PKTFM: "DATA-FM", PKTAM: "DATA-AM" };
+
+/** Hamlib's mode names as radios show them: PKTUSB is DATA-U. */
+export const modeName = (mode: string) => MODE_NAMES[mode] ?? mode;
+
 export function age(seconds: number): string {
   if (seconds < 90) return `${Math.max(0, Math.round(seconds))} s`;
   if (seconds < 90 * 60) return `${Math.round(seconds / 60)} min`;

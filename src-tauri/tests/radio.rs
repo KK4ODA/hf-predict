@@ -1,6 +1,6 @@
 //! Reads a stand-in `rigctld` over real TCP: a server that answers the
 //! extended protocol with canned replies and records every command it
-//! receives, so the test can check that the app only ever asks.
+//! receives, so the test can check what the app asks and sets.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
@@ -25,13 +25,14 @@ impl FakeRigctld {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let freq = Arc::new(Mutex::new(freq_reply.to_string()));
+        let mode = Arc::new(Mutex::new("Mode: USB\nPassband: 3000".to_string()));
         let (recorded, stopping) = (commands.clone(), stop.clone());
         std::thread::spawn(move || {
             while !stopping.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let (recorded, stopping, freq) = (recorded.clone(), stopping.clone(), freq.clone());
-                        std::thread::spawn(move || serve(stream, recorded, stopping, freq));
+                        let (recorded, stopping, freq, mode) = (recorded.clone(), stopping.clone(), freq.clone(), mode.clone());
+                        std::thread::spawn(move || serve(stream, recorded, stopping, freq, mode));
                     }
                     Err(_) => std::thread::sleep(Duration::from_millis(20)),
                 }
@@ -51,7 +52,13 @@ impl Drop for FakeRigctld {
     }
 }
 
-fn serve(stream: TcpStream, recorded: Arc<Mutex<Vec<String>>>, stop: Arc<AtomicBool>, freq: Arc<Mutex<String>>) {
+fn serve(
+    stream: TcpStream,
+    recorded: Arc<Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    freq: Arc<Mutex<String>>,
+    mode: Arc<Mutex<String>>,
+) {
     // On Windows an accepted socket inherits the listener's non-blocking mode.
     stream.set_nonblocking(false).unwrap();
     let mut writer = stream.try_clone().unwrap();
@@ -70,10 +77,22 @@ fn serve(stream: TcpStream, recorded: Arc<Mutex<Vec<String>>>, stop: Arc<AtomicB
             }
             continue;
         }
+        if let Some(args) = line.strip_prefix("+\\set_mode ") {
+            let (name, passband) = args.split_once(' ').unwrap_or((args, "-1"));
+            let mut current = mode.lock().unwrap();
+            let kept = current.split_once("Passband: ").map_or("0", |(_, p)| p).to_string();
+            let passband = if passband == "-1" { kept } else { passband.to_string() };
+            *current = format!("Mode: {name}\nPassband: {passband}");
+            if writer.write_all(format!("set_mode: {args}\nRPRT 0\n").as_bytes()).is_err() {
+                return;
+            }
+            continue;
+        }
         let current = freq.lock().unwrap().clone();
+        let mode_reply = format!("get_mode:\n{}\nRPRT 0\n", mode.lock().unwrap());
         let reply = match line.as_str() {
             "+\\get_freq" => current.as_str(),
-            "+\\get_mode" => "get_mode:\nMode: USB\nPassband: 3000\nRPRT 0\n",
+            "+\\get_mode" => mode_reply.as_str(),
             "+\\get_ptt" => "get_ptt:\nPTT: 0\nRPRT 0\n",
             "+\\get_split_vfo" => "get_split_vfo:\nSplit: 0\nTX VFO: VFOA\nRPRT 0\n",
             "+\\get_vfo" => "get_vfo:\nVFO: VFOA\nRPRT 0\n",
@@ -193,6 +212,23 @@ fn the_monitor_sets_the_frequency_on_request_and_reads_it_back() {
     let commands = server.commands();
     assert!(commands.iter().any(|c| c == "+\\set_freq 7074000"), "{commands:?}");
     assert_eq!(commands.iter().filter(|c| c.starts_with("+\\set_")).count(), 1);
+}
+
+#[test]
+fn the_monitor_sets_the_mode_on_request_and_reads_it_back() {
+    let server = FakeRigctld::start(FREQ_OK);
+    let config = RadioConfig { enabled: true, host: "127.0.0.1".into(), port: server.port, poll_seconds: 0.5, ..RadioConfig::default() };
+    assert_eq!(config.scan_mode, "PKTUSB", "DATA-U is the default for scanning");
+    let monitor = Monitor::start(config);
+    wait_for(&monitor, |s| s.reads >= 1, 5);
+
+    let after = monitor.set_mode("PKTUSB", Some(2400)).unwrap();
+    assert_eq!((after.mode.as_str(), after.passband_hz), ("PKTUSB", Some(2400)));
+    let after = monitor.set_mode("USB", None).unwrap();
+    assert_eq!((after.mode.as_str(), after.passband_hz), ("USB", Some(2400)), "-1 leaves the passband alone");
+    let commands = server.commands();
+    let sets: Vec<&String> = commands.iter().filter(|c| c.starts_with("+\\set_")).collect();
+    assert_eq!(sets, ["+\\set_mode PKTUSB 2400", "+\\set_mode USB -1"]);
 }
 
 /// Leave rigctld running when the app quits, take it back in the next
