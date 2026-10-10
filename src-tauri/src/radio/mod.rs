@@ -8,6 +8,7 @@ pub mod rigctld;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -149,6 +150,8 @@ type Connector = dyn Fn(&RadioConfig) -> Result<Box<dyn RadioController>, String
 /// reconnects after a failure.
 pub struct Monitor {
     stop: Arc<AtomicBool>,
+    /// Leave a rigctld this monitor started running when it stops.
+    keep: Arc<AtomicBool>,
     status: Arc<Mutex<RadioStatus>>,
     requests: Sender<Request>,
     thread: Option<JoinHandle<()>>,
@@ -157,25 +160,44 @@ pub struct Monitor {
 impl Monitor {
     /// Connects to `rigctld` as configured, starting it first if asked.
     pub fn start(config: RadioConfig) -> Self {
-        Self::start_with(
+        Self::start_recorded(config, None)
+    }
+
+    /// As `start`, keeping the started daemon's process id in `record`, so
+    /// a daemon an earlier session left running is taken back, not started
+    /// a second time.
+    pub fn start_recorded(config: RadioConfig, record: Option<PathBuf>) -> Self {
+        Self::launch(
             config,
             Box::new(|config: &RadioConfig| {
                 rigctld::Rigctld::connect(&config.host, config.port)
                     .map(|client| Box::new(client) as Box<dyn RadioController>)
             }),
+            record,
         )
     }
 
     /// Reads whatever `connect` provides; for tests.
     pub fn start_with(config: RadioConfig, connect: Box<Connector>) -> Self {
+        Self::launch(config, connect, None)
+    }
+
+    fn launch(config: RadioConfig, connect: Box<Connector>, record: Option<PathBuf>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
+        let keep = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(RadioStatus::off(config.clone())));
         let (requests, inbox) = mpsc::channel();
         let thread = {
-            let (stop, status) = (stop.clone(), status.clone());
-            std::thread::spawn(move || run(config, connect, inbox, stop, status))
+            let (stop, keep, status) = (stop.clone(), keep.clone(), status.clone());
+            std::thread::spawn(move || run(config, connect, inbox, stop, keep, record, status))
         };
-        Self { stop, status, requests, thread: Some(thread) }
+        Self { stop, keep, status, requests, thread: Some(thread) }
+    }
+
+    /// When this monitor stops, leave the rigctld it started running, for
+    /// other programs still using it.
+    pub fn keep_daemon_running(&self) {
+        self.keep.store(true, Ordering::Relaxed);
     }
 
     pub fn status(&self) -> RadioStatus {
@@ -259,6 +281,8 @@ fn run(
     connect: Box<Connector>,
     inbox: Receiver<Request>,
     stop: Arc<AtomicBool>,
+    keep: Arc<AtomicBool>,
+    record: Option<PathBuf>,
     status: Arc<Mutex<RadioStatus>>,
 ) {
     let update = |f: &dyn Fn(&mut RadioStatus)| f(&mut status.lock().unwrap_or_else(PoisonError::into_inner));
@@ -277,20 +301,30 @@ fn run(
         // The daemon, when this app runs it. Dropping it at the end of a
         // pass stops it, so a restart begins clean.
         let mut daemon = None;
+        let mut already_running = false;
         if config.start_rigctld {
             update(&|s| {
                 s.state = "connecting";
                 s.detail = "Starting rigctld…".into();
                 s.daemon = None;
             });
-            match daemon::Daemon::start(&config) {
-                Ok(started) => daemon = Some(started),
-                Err(e) => {
-                    fail(e);
-                    if !pause(&stop, RETRY) {
-                        break;
+            if let Some(adopted) = record.as_deref().and_then(|r| daemon::Daemon::adopt(r, keep.clone())) {
+                // Left running by an earlier session: take it back.
+                daemon = Some(adopted);
+            } else if connect(&config).is_ok() {
+                // Another rigctld already answers on the port; starting a
+                // second would fail, so use this one.
+                already_running = true;
+            } else {
+                match daemon::Daemon::start_recorded(&config, record.as_deref(), keep.clone()) {
+                    Ok(started) => daemon = Some(started),
+                    Err(e) => {
+                        fail(e);
+                        if !pause(&stop, RETRY) {
+                            break;
+                        }
+                        continue;
                     }
-                    continue;
                 }
             }
         }
@@ -346,7 +380,11 @@ fn run(
         let name = radio.name().to_string();
         update(&|s| {
             s.state = "connected";
-            s.detail = format!("Reading {name} every {} s. This app only reads.", config.poll_seconds);
+            s.detail = if already_running {
+                format!("Reading {name} every {} s. It was already running, so this app did not start it.", config.poll_seconds)
+            } else {
+                format!("Reading {name} every {} s.", config.poll_seconds)
+            };
         });
         loop {
             if let Some(d) = daemon_status(&mut daemon) {

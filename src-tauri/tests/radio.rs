@@ -194,3 +194,49 @@ fn the_monitor_sets_the_frequency_on_request_and_reads_it_back() {
     assert!(commands.iter().any(|c| c == "+\\set_freq 7074000"), "{commands:?}");
     assert_eq!(commands.iter().filter(|c| c.starts_with("+\\set_")).count(), 1);
 }
+
+/// Leave rigctld running when the app quits, take it back in the next
+/// session, then stop it: with the real `rigctld` named by `HFP_RIGCTLD` and
+/// Hamlib's dummy radio.
+#[test]
+#[ignore]
+fn a_rigctld_left_running_is_taken_back_and_stopped() {
+    let Ok(program) = std::env::var("HFP_RIGCTLD") else {
+        return;
+    };
+    let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap().local_addr().unwrap().port();
+    let record = std::env::temp_dir().join(format!("hfp-rigctld-record-{}.json", std::process::id()));
+    let config = RadioConfig {
+        enabled: true,
+        host: "127.0.0.1".into(),
+        port,
+        poll_seconds: 0.5,
+        start_rigctld: true,
+        rigctld_path: program,
+        rig_model: 1,
+        serial_port: String::new(),
+        ..RadioConfig::default()
+    };
+
+    // First session: start it, then quit leaving it running.
+    let first = Monitor::start_recorded(config.clone(), Some(record.clone()));
+    let status = wait_for(&first, |s| s.reads >= 1 || s.state == "failed", 20);
+    assert_eq!(status.state, "connected", "{}", status.detail);
+    let pid = status.daemon.as_ref().expect("started by the app").pid;
+    first.keep_daemon_running();
+    drop(first);
+    assert!(record.exists(), "the record stays while the daemon runs");
+    assert!(Rigctld::connect("127.0.0.1", port).is_ok(), "rigctld must still answer");
+
+    // Second session: the same daemon is taken back, not started again.
+    let second = Monitor::start_recorded(config, Some(record.clone()));
+    let status = wait_for(&second, |s| s.reads >= 1 || s.state == "failed", 20);
+    assert_eq!(status.state, "connected", "{}", status.detail);
+    assert_eq!(status.daemon.as_ref().map(|d| d.pid), Some(pid), "the earlier daemon is taken back");
+
+    // Quit stopping it.
+    drop(second);
+    std::thread::sleep(Duration::from_millis(800));
+    assert!(Rigctld::connect("127.0.0.1", port).is_err(), "rigctld must be stopped");
+    assert!(!record.exists(), "the record goes with the daemon");
+}
