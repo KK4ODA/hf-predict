@@ -48,11 +48,28 @@ const SCHEMA: &str = "
         provider TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS listening_intervals_time ON listening_intervals (end_utc);
+    CREATE TABLE IF NOT EXISTS predicted_reliability (
+        key TEXT NOT NULL,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        hour INTEGER NOT NULL,
+        grid TEXT NOT NULL,
+        bands TEXT NOT NULL,
+        PRIMARY KEY (key, year, month, hour, grid)
+    );
 ";
 const SCHEMA_VERSION: i64 = 1;
 
 /// Decoded by this station's own receiver, as opposed to a reporting network.
 pub const ORIGIN_LOCAL: &str = "LOCAL";
+
+/// A stretch of listening on one band, as the listener recorded it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListeningInterval {
+    pub start_utc: i64,
+    pub end_utc: i64,
+    pub band: String,
+}
 
 /// One decoded signal.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -207,6 +224,70 @@ impl Database {
 
     fn lock(&self) -> MutexGuard<'_, Connection> {
         self.connection.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn listening_intervals(&self) -> Result<Vec<ListeningInterval>, String> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare("SELECT start_utc, end_utc, band FROM listening_intervals ORDER BY start_utc")
+            .map_err(text)?;
+        let rows = statement
+            .query_map([], |r| Ok(ListeningInterval { start_utc: r.get(0)?, end_utc: r.get(1)?, band: r.get(2)? }))
+            .map_err(text)?;
+        rows.map(|r| r.map_err(text)).collect()
+    }
+
+    /// Cached predictions for one month under `key` (the assumptions they
+    /// were made with): (UTC hour 0-23, locator) to reliability per band.
+    pub fn predicted_reliability(
+        &self,
+        key: &str,
+        year: i32,
+        month: u32,
+    ) -> Result<BTreeMap<(u32, String), Vec<f64>>, String> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare("SELECT hour, grid, bands FROM predicted_reliability WHERE key = ?1 AND year = ?2 AND month = ?3")
+            .map_err(text)?;
+        let rows = statement
+            .query_map(params![key, year, month], |r| {
+                Ok((r.get::<_, i64>(0)? as u32, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            })
+            .map_err(text)?;
+        let mut table = BTreeMap::new();
+        for row in rows {
+            let (hour, grid, bands) = row.map_err(text)?;
+            let bands = bands
+                .split(',')
+                .map(|v| v.parse::<f64>().map_err(|e| format!("cached prediction: {e}")))
+                .collect::<Result<Vec<_>, _>>()?;
+            table.insert((hour, grid), bands);
+        }
+        Ok(table)
+    }
+
+    pub fn store_predicted_reliability(
+        &self,
+        key: &str,
+        year: i32,
+        month: u32,
+        rows: &[(u32, String, Vec<f64>)],
+    ) -> Result<(), String> {
+        let mut connection = self.lock();
+        let transaction = connection.transaction().map_err(text)?;
+        {
+            let mut statement = transaction
+                .prepare(
+                    "INSERT OR REPLACE INTO predicted_reliability (key, year, month, hour, grid, bands)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                )
+                .map_err(text)?;
+            for (hour, grid, bands) in rows {
+                let bands = bands.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+                statement.execute(params![key, year, month, i64::from(*hour), grid, bands]).map_err(text)?;
+            }
+        }
+        transaction.commit().map_err(text)
     }
 
     /// Stores an observation. Returns false if the same decode was already there.

@@ -804,3 +804,20 @@ table.compare td.left .hint {
   max-width: 340px;
   white-space: normal;
 }
+
+.chart .bar {
+  fill: var(--series-1);
+}
+
+.chart .bar.dim {
+  opacity: 0.55;
+}
+
+.chart .bar-hit {
+  fill: transparent;
+}
+
+.chart .value {
+  fill: var(--muted);
+  font-size: 11px;
+}

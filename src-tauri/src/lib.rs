@@ -18,8 +18,8 @@ pub mod wsjtx;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use serde::Serialize;
-use tauri::{path::BaseDirectory, Manager};
+use serde::{Deserialize, Serialize};
+use tauri::{path::BaseDirectory, Emitter, Manager};
 
 use compare::{BandComparison, CompareQuery};
 use coverage::{Coverage, CoverageRequest};
@@ -84,6 +84,31 @@ fn predict_coverage(app: tauri::AppHandle, request: CoverageRequest) -> Result<C
 #[tauri::command]
 fn resolve_position(text: String) -> Result<LatLon, String> {
     geo::parse_position(&text)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CalibrationQuery {
+    rx_position: String,
+    noise_db: f64,
+}
+
+#[derive(Clone, Serialize)]
+struct CalibrationProgress {
+    done: usize,
+    total: usize,
+}
+
+/// Predicts every stored decode's path and tallies hearing against
+/// prediction. Emits `calibration-progress` as engine runs complete.
+#[tauri::command(async)]
+fn calibration_report(app: tauri::AppHandle, query: CalibrationQuery) -> Result<calibration::Report, String> {
+    let db = app.state::<AppState>().db()?.clone();
+    let engine = engine(&app)?;
+    let progress = |done: usize, total: usize| {
+        let _ = app.emit("calibration-progress", CalibrationProgress { done, total });
+    };
+    calibration::calibrate(&engine, &db, &query.rx_position, query.noise_db, &progress)
 }
 
 fn user_data_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -310,6 +335,7 @@ pub fn run() {
             resolve_position,
             conditions,
             refresh_conditions,
+            calibration_report,
             import_conditions,
             winlink_request,
             listener_status,
