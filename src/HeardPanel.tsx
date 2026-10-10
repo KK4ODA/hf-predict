@@ -1,11 +1,12 @@
 import { localClock } from "./localtime";
-import { ChangeEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { LogFiles } from "./LogFiles";
 import {
   BandActivity,
-  ImportSummary,
   ListenerConfig,
   ListenerStatus,
+  LogFile,
   Observation,
 } from "./types";
 
@@ -46,15 +47,19 @@ function duration(seconds: number): string {
 }
 
 /** What WSJT-X is decoding right now, as received over the network. */
-export function HeardPanel() {
+type Props = {
+  logFiles: LogFile[];
+  onLogFilesChange: (files: LogFile[]) => void;
+  defaultRxPosition: string;
+};
+
+export function HeardPanel({ logFiles, onLogFilesChange, defaultRxPosition }: Props) {
   const [status, setStatus] = useState<ListenerStatus | null>(null);
   const [draft, setDraft] = useState<ListenerConfig | null>(null);
   const [minutes, setMinutes] = useState(60);
   const [activity, setActivity] = useState<BandActivity[]>([]);
   const [recent, setRecent] = useState<Observation[]>([]);
   const [error, setError] = useState("");
-  const [rxGrid, setRxGrid] = useState("");
-  const [imported, setImported] = useState("");
 
   useEffect(() => {
     let current = true;
@@ -90,25 +95,6 @@ export function HeardPanel() {
       setError("");
     } catch (e) {
       setError(String(e));
-    }
-  }
-
-  async function importLog(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    setImported("Importing…");
-    try {
-      const summary = await invoke<ImportSummary>("import_all_txt", {
-        text: await file.text(),
-        rxGrid: rxGrid.trim() || null,
-      });
-      setImported(
-        `${file.name}: ${summary.stored} decodes imported, ${summary.alreadyStored} already stored, ` +
-          `${summary.transmissions} own transmissions skipped, ${summary.notUnderstood} lines not understood.`,
-      );
-    } catch (e) {
-      setImported(`${file.name}: ${e}`);
     }
   }
 
@@ -343,26 +329,7 @@ export function HeardPanel() {
         counts.
       </p>
 
-      <h3>Import a WSJT-X log</h3>
-      <div className="controls">
-        <label className="inline">
-          Receiver locator
-          <input
-            className="short"
-            placeholder="EM73"
-            value={rxGrid}
-            onChange={(e) => setRxGrid(e.target.value)}
-          />
-        </label>
-        <label className="file">
-          ALL.TXT
-          <input type="file" accept=".txt,.TXT" onChange={importLog} />
-        </label>
-      </div>
-      <p className="note">
-        The log does not record where the receiver was. Give the locator to get distances and
-        bearings. {imported}
-      </p>
+      <LogFiles files={logFiles} onChange={onLogFilesChange} defaultRxPosition={defaultRxPosition} />
     </section>
   );
 }

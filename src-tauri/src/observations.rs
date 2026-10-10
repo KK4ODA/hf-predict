@@ -48,6 +48,11 @@ const SCHEMA: &str = "
         provider TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS listening_intervals_time ON listening_intervals (end_utc);
+    CREATE TABLE IF NOT EXISTS log_files (
+        path TEXT PRIMARY KEY,
+        imported_bytes INTEGER NOT NULL,
+        checked_utc INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS predicted_reliability (
         key TEXT NOT NULL,
         year INTEGER NOT NULL,
@@ -224,6 +229,28 @@ impl Database {
 
     fn lock(&self) -> MutexGuard<'_, Connection> {
         self.connection.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// How far into a log file the last check read, and when.
+    pub fn log_progress(&self, path: &str) -> Result<Option<(u64, i64)>, String> {
+        self.lock()
+            .query_row(
+                "SELECT imported_bytes, checked_utc FROM log_files WHERE path = ?1",
+                [path],
+                |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)?)),
+            )
+            .optional()
+            .map_err(text)
+    }
+
+    pub fn set_log_progress(&self, path: &str, imported_bytes: u64, checked_utc: i64) -> Result<(), String> {
+        self.lock()
+            .execute(
+                "INSERT OR REPLACE INTO log_files (path, imported_bytes, checked_utc) VALUES (?1, ?2, ?3)",
+                params![path, imported_bytes as i64, checked_utc],
+            )
+            .map(|_| ())
+            .map_err(text)
     }
 
     pub fn listening_intervals(&self) -> Result<Vec<ListeningInterval>, String> {

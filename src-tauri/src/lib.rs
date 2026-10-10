@@ -31,7 +31,7 @@ use spacewx::Conditions;
 use station::{Band, Choice, Mode, StationProfile};
 use observations::{BandActivity, Database, HeardStation, Observation};
 use userdata::UserData;
-use wsjtx::alltxt::ImportSummary;
+use wsjtx::logs::{self, LogCheck, LogFile};
 use wsjtx::listener::{Listener, ListenerConfig, ListenerStatus};
 
 /// Everything the form offers, so the lists live in one place.
@@ -204,6 +204,8 @@ struct AppState {
     db: Result<Arc<Database>, String>,
     listener_config: Mutex<ListenerConfig>,
     listener: Mutex<Option<Listener>>,
+    /// What the last check of the configured logs found.
+    log_checks: Mutex<Vec<LogCheck>>,
 }
 
 impl AppState {
@@ -275,18 +277,50 @@ fn compare_path(state: tauri::State<AppState>, query: CompareQuery) -> Result<Ve
     compare::compare(state.db()?, &query, timeutil::now())
 }
 
-/// Imports the contents of a WSJT-X ALL.TXT log.
+/// Logs found in the program folders on this computer.
+#[tauri::command]
+fn find_log_files() -> Vec<logs::FoundLog> {
+    logs::find()
+}
+
+/// What the last check of each configured log found.
+#[tauri::command]
+fn log_checks(state: tauri::State<AppState>) -> Vec<LogCheck> {
+    state.log_checks.lock().map(|checks| checks.clone()).unwrap_or_default()
+}
+
+/// Reads each log from where its last check ended, and remembers the outcome.
 #[tauri::command(async)]
-fn import_all_txt(
-    state: tauri::State<AppState>,
-    text: String,
-    rx_grid: Option<String>,
-) -> Result<ImportSummary, String> {
-    let rx_grid = rx_grid.as_deref().map(str::trim).filter(|g| !g.is_empty());
-    if let Some(grid) = rx_grid {
-        geo::from_maidenhead(grid).map_err(|e| format!("Receiver locator: {e}"))?;
+fn check_log_files(app: tauri::AppHandle, files: Vec<LogFile>) -> Result<Vec<LogCheck>, String> {
+    let state = app.state::<AppState>();
+    let db = state.db()?.clone();
+    let now = timeutil::now();
+    let checks: Vec<LogCheck> = files.iter().map(|log| logs::check(&db, log, now)).collect();
+    if let Ok(mut remembered) = state.log_checks.lock() {
+        *remembered = checks.clone();
     }
-    wsjtx::alltxt::import(state.db()?, &text, rx_grid)
+    Ok(checks)
+}
+
+/// Reads the configured logs in the background once the app is up.
+fn check_logs_on_start(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let Ok(data) = user_data_file(&app).and_then(|file| userdata::load(&file)) else {
+            return;
+        };
+        if data.log_files.is_empty() {
+            return;
+        }
+        let state = app.state::<AppState>();
+        let Ok(db) = state.db().cloned() else {
+            return;
+        };
+        let now = timeutil::now();
+        let checks: Vec<LogCheck> = data.log_files.iter().map(|log| logs::check(&db, log, now)).collect();
+        if let Ok(mut remembered) = state.log_checks.lock() {
+            *remembered = checks;
+        };
+    });
 }
 
 /// Opens the observation database and starts the listener if it was left on.
@@ -301,6 +335,7 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
         db,
         listener_config: Mutex::new(config.clone()),
         listener: Mutex::new(None),
+        log_checks: Mutex::new(Vec::new()),
     };
     // A database that will not open is reported when the screen asks for data.
     let _ = state.apply(config);
@@ -322,10 +357,12 @@ fn install_cached_ssn_table(app: &tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             install_cached_ssn_table(app.handle());
             app.manage(start_observing(app.handle()));
+            check_logs_on_start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -344,7 +381,9 @@ pub fn run() {
             band_activity,
             heard_stations,
             compare_path,
-            import_all_txt,
+            find_log_files,
+            log_checks,
+            check_log_files,
             load_user_data,
             save_user_data
         ])

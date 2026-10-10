@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::jsonfile;
 use crate::station::StationProfile;
+use crate::wsjtx::logs::LogFile;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +21,8 @@ pub struct SavedLocation {
 pub struct UserData {
     pub locations: Vec<SavedLocation>,
     pub stations: Vec<StationProfile>,
+    /// WSJT-X ALL.TXT logs to read.
+    pub log_files: Vec<LogFile>,
 }
 
 /// A missing file is an empty `UserData`; an unreadable one is an error.
@@ -55,6 +58,7 @@ mod tests {
         let data = UserData {
             locations: vec![SavedLocation { name: "Home".into(), position: "EM73tr".into() }],
             stations: station::presets(),
+            log_files: vec![LogFile { path: "C:/logs/ALL.TXT".into(), rx_position: Some("EM73".into()) }],
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path).unwrap(), data);

@@ -845,3 +845,16 @@ table.compare td.left .hint {
   fill: var(--muted);
   font-size: 11px;
 }
+
+.found-logs {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+
+.found-logs li {
+  margin: 4px 0;
+}
+
+table.logs td.mono {
+  word-break: break-all;
+}
