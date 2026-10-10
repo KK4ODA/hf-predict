@@ -476,6 +476,23 @@ fn radio_status(state: tauri::State<AppState>) -> radio::RadioStatus {
     state.radio_status()
 }
 
+/// The rigctld programs installed on this computer.
+#[tauri::command(async)]
+fn find_rigctld() -> Vec<radio::daemon::FoundProgram> {
+    radio::daemon::find()
+}
+
+/// The radios a rigctld program knows.
+#[tauri::command(async)]
+fn rig_models(program: String) -> Result<Vec<radio::daemon::RigModel>, String> {
+    radio::daemon::rig_models(&program)
+}
+
+#[tauri::command(async)]
+fn serial_ports() -> Vec<String> {
+    radio::daemon::serial_ports()
+}
+
 #[tauri::command]
 fn set_radio_config(
     app: tauri::AppHandle,
@@ -521,6 +538,9 @@ pub fn run() {
             listen_plan,
             radio_status,
             set_radio_config,
+            find_rigctld,
+            rig_models,
+            serial_ports,
             import_conditions,
             winlink_request,
             listener_status,

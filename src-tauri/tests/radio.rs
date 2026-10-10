@@ -114,7 +114,7 @@ fn a_radio_error_is_reported_by_name() {
 #[test]
 fn the_monitor_connects_reads_and_reports_a_lost_server() {
     let server = FakeRigctld::start(FREQ_OK);
-    let config = RadioConfig { enabled: true, host: "127.0.0.1".into(), port: server.port, poll_seconds: 0.5 };
+    let config = RadioConfig { enabled: true, host: "127.0.0.1".into(), port: server.port, poll_seconds: 0.5, ..RadioConfig::default() };
     let monitor = Monitor::start(config);
 
     let status = wait_for(&monitor, |s| s.reads >= 2, 5);
@@ -131,8 +131,41 @@ fn the_monitor_connects_reads_and_reports_a_lost_server() {
 #[test]
 fn no_server_is_a_failure_not_a_panic() {
     let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap().local_addr().unwrap().port();
-    let monitor = Monitor::start(RadioConfig { enabled: true, host: "127.0.0.1".into(), port, poll_seconds: 1.0 });
+    let monitor = Monitor::start(RadioConfig { enabled: true, host: "127.0.0.1".into(), port, poll_seconds: 1.0, ..RadioConfig::default() });
     let status = wait_for(&monitor, |s| s.state == "failed", 10);
     assert_eq!(status.state, "failed");
     assert!(status.detail.starts_with("cannot connect to rigctld"), "{}", status.detail);
+}
+
+/// Starts the real `rigctld` named by `HFP_RIGCTLD` with Hamlib's dummy radio:
+/// `HFP_RIGCTLD="C:/Program Files/hamlib-w64-4.7.1/bin/rigctld.exe" cargo test --test radio -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn the_app_can_start_rigctld_itself() {
+    let Ok(program) = std::env::var("HFP_RIGCTLD") else {
+        return;
+    };
+    let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap().local_addr().unwrap().port();
+    let config = RadioConfig {
+        enabled: true,
+        host: "127.0.0.1".into(),
+        port,
+        poll_seconds: 0.5,
+        start_rigctld: true,
+        rigctld_path: program,
+        rig_model: 1,
+        serial_port: String::new(),
+        baud: 38_400,
+        ..RadioConfig::default()
+    };
+    let monitor = Monitor::start(config);
+    let status = wait_for(&monitor, |s| s.reads >= 2 || s.state == "failed", 20);
+    println!("{} | daemon: {:?}", status.detail, status.daemon);
+    assert_eq!(status.state, "connected", "{}", status.detail);
+    let radio = status.radio.expect("a reading");
+    println!("dummy radio reports {} Hz {} ptt {}", radio.freq_hz, radio.mode, radio.ptt);
+    let daemon = status.daemon.expect("a daemon");
+    assert!(daemon.running);
+    assert!(daemon.command.contains(" -m 1 -T 127.0.0.1 -t "), "{}", daemon.command);
+    drop(monitor);
 }

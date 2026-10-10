@@ -1,7 +1,9 @@
 //! Radio control. In this phase the app only reads the radio: frequency,
-//! mode, PTT, split and VFO, through a `rigctld` shared with WSJT-X. The
-//! interface has no transmit function, and nothing here sets anything yet.
+//! mode, PTT, split and VFO, through a `rigctld` shared with WSJT-X, which
+//! the app can start itself. The interface has no transmit function, and
+//! nothing here sets anything yet.
 
+pub mod daemon;
 pub mod rigctld;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -58,13 +60,30 @@ pub struct RadioConfig {
     pub host: String,
     pub port: u16,
     pub poll_seconds: f64,
+    /// Start `rigctld` from this app rather than attach to one already running.
+    pub start_rigctld: bool,
+    pub rigctld_path: String,
+    /// Hamlib's number for the radio, as `rigctld -l` lists it.
+    pub rig_model: u32,
+    pub serial_port: String,
+    pub baud: u32,
 }
 
 impl Default for RadioConfig {
     /// Off until the operator turns it on; `rigctld`'s default port, on
     /// this computer only.
     fn default() -> Self {
-        Self { enabled: false, host: "127.0.0.1".into(), port: 4532, poll_seconds: 2.0 }
+        Self {
+            enabled: false,
+            host: "127.0.0.1".into(),
+            port: 4532,
+            poll_seconds: 2.0,
+            start_rigctld: false,
+            rigctld_path: String::new(),
+            rig_model: 0,
+            serial_port: String::new(),
+            baud: 38_400,
+        }
     }
 }
 
@@ -81,6 +100,8 @@ pub struct RadioStatus {
     pub reads: u64,
     pub errors: u64,
     pub last_error: Option<String>,
+    /// The `rigctld` this app started, if it did.
+    pub daemon: Option<daemon::DaemonStatus>,
 }
 
 impl RadioStatus {
@@ -94,6 +115,7 @@ impl RadioStatus {
             reads: 0,
             errors: 0,
             last_error: None,
+            daemon: None,
         }
     }
 }
@@ -101,6 +123,8 @@ impl RadioStatus {
 /// How long to wait before trying to connect again.
 const RETRY: Duration = Duration::from_secs(5);
 const STOP_CHECK: Duration = Duration::from_millis(100);
+/// Attempts to reach a `rigctld` this app just started, one second apart.
+const STARTUP_ATTEMPTS: u32 = 8;
 
 type Connector = dyn Fn(&RadioConfig) -> Result<Box<dyn RadioController>, String> + Send;
 
@@ -113,7 +137,7 @@ pub struct Monitor {
 }
 
 impl Monitor {
-    /// Connects to `rigctld` as configured.
+    /// Connects to `rigctld` as configured, starting it first if asked.
     pub fn start(config: RadioConfig) -> Self {
         Self::start_with(
             config,
@@ -149,7 +173,7 @@ impl Drop for Monitor {
     }
 }
 
-/// Sleeps for `duration`, waking early when asked to stop.
+/// Sleeps for `duration`, waking early when asked to stop. False when stopped.
 fn pause(stop: &AtomicBool, duration: Duration) -> bool {
     let until = Instant::now() + duration;
     while Instant::now() < until {
@@ -163,33 +187,104 @@ fn pause(stop: &AtomicBool, duration: Duration) -> bool {
 
 fn run(config: RadioConfig, connect: Box<Connector>, stop: Arc<AtomicBool>, status: Arc<Mutex<RadioStatus>>) {
     let update = |f: &dyn Fn(&mut RadioStatus)| f(&mut status.lock().unwrap_or_else(PoisonError::into_inner));
+    let fail = |detail: String| {
+        update(&|s| {
+            s.state = "failed";
+            s.detail = detail.clone();
+            s.errors += 1;
+            s.last_error = Some(detail.clone());
+        })
+    };
     let poll = Duration::from_secs_f64(config.poll_seconds.max(0.5));
+    let target = format!("{}:{}", config.host, config.port);
+
     while !stop.load(Ordering::Relaxed) {
+        // The daemon, when this app runs it. Dropping it at the end of a
+        // pass stops it, so a restart begins clean.
+        let mut daemon = None;
+        if config.start_rigctld {
+            update(&|s| {
+                s.state = "connecting";
+                s.detail = "Starting rigctld…".into();
+                s.daemon = None;
+            });
+            match daemon::Daemon::start(&config) {
+                Ok(started) => daemon = Some(started),
+                Err(e) => {
+                    fail(e);
+                    if !pause(&stop, RETRY) {
+                        break;
+                    }
+                    continue;
+                }
+            }
+        }
+        let daemon_status = |daemon: &mut Option<daemon::Daemon>| daemon.as_mut().map(|d| d.status());
+
         update(&|s| {
             s.state = "connecting";
-            s.detail = format!("Connecting to rigctld at {}:{}…", config.host, config.port);
+            s.detail = format!("Connecting to rigctld at {target}…");
         });
-        let mut radio = match connect(&config) {
-            Ok(radio) => radio,
-            Err(e) => {
-                update(&|s| {
-                    s.state = "failed";
-                    s.detail = e.clone();
-                    s.errors += 1;
-                    s.last_error = Some(e.clone());
-                });
-                if !pause(&stop, RETRY) {
+        let attempts = if daemon.is_some() { STARTUP_ATTEMPTS } else { 1 };
+        let mut radio = None;
+        for attempt in 1..=attempts {
+            let d = daemon_status(&mut daemon);
+            update(&|s| s.daemon = d.clone());
+            if let Some(d) = &d {
+                if !d.running {
                     break;
                 }
-                continue;
             }
+            match connect(&config) {
+                Ok(connected) => {
+                    radio = Some(connected);
+                    break;
+                }
+                Err(e) if attempt == attempts || d.as_ref().is_some_and(|d| !d.running) => {
+                    fail(e);
+                    break;
+                }
+                Err(_) => {
+                    if !pause(&stop, Duration::from_secs(1)) {
+                        return;
+                    }
+                }
+            }
+        }
+        let Some(mut radio) = radio else {
+            if let Some(d) = daemon_status(&mut daemon) {
+                if !d.running {
+                    fail(format!(
+                        "rigctld exited with code {}: {}",
+                        d.exit_code.unwrap_or(-1),
+                        d.output.lines().last().unwrap_or("no output")
+                    ));
+                }
+                update(&|s| s.daemon = Some(d.clone()));
+            }
+            if !pause(&stop, RETRY) {
+                break;
+            }
+            continue;
         };
+
         let name = radio.name().to_string();
         update(&|s| {
             s.state = "connected";
-            s.detail = format!("Reading {name} at {}:{} every {} s. This app only reads.", config.host, config.port, config.poll_seconds);
+            s.detail = format!("Reading {name} every {} s. This app only reads.", config.poll_seconds);
         });
         loop {
+            if let Some(d) = daemon_status(&mut daemon) {
+                update(&|s| s.daemon = Some(d.clone()));
+                if !d.running {
+                    fail(format!(
+                        "rigctld exited with code {}: {}; restarting.",
+                        d.exit_code.unwrap_or(-1),
+                        d.output.lines().last().unwrap_or("no output")
+                    ));
+                    break;
+                }
+            }
             match radio.read() {
                 Ok(state) => update(&|s| {
                     s.radio = Some(state.clone());
@@ -197,12 +292,7 @@ fn run(config: RadioConfig, connect: Box<Connector>, stop: Arc<AtomicBool>, stat
                     s.reads += 1;
                 }),
                 Err(e) => {
-                    update(&|s| {
-                        s.state = "failed";
-                        s.detail = format!("{e}; reconnecting.");
-                        s.errors += 1;
-                        s.last_error = Some(e.clone());
-                    });
+                    fail(format!("{e}; reconnecting."));
                     break;
                 }
             }

@@ -863,3 +863,17 @@ table.logs td.mono {
   font-size: 1.2rem;
   margin: 10px 0 14px;
 }
+
+input.wide {
+  width: 28em;
+  max-width: 100%;
+}
+
+pre.output {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
