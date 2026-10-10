@@ -46,6 +46,8 @@ Taken with a real FT8 prediction from the engine (EM73tr to IO91wm, October) and
 
 ## Getting started
 
+The [user manual](docs/manual.md) explains every view and setting. In short:
+
 1. Install from [Releases](https://github.com/KK4ODA/hf-predict/releases). Enter your position in **From** (a locator such as `EM73tr`, or latitude, longitude) and a destination in **To**, pick your station preset, and press **Predict**.
 2. **Hearing.** In WSJT-X, File → Settings → Reporting, set the UDP server to `224.0.0.1`, port `2237` (a multicast group, so GridTracker, JTAlert and this app can all listen). On the Heard tab tick *Listen for WSJT-X*. To bring in history, add your `ALL.TXT` logs there (*Find logs* lists the ones in the usual folders); they are re-read on start-up, new lines only.
 3. **Radio** (optional, for scanning). Install Hamlib if WSJT-X did not ship `rigctld-wsjtx`. On the Radio tab tick *Start rigctld for me*, choose the program, your radio, its serial port and speed, and optionally *Start WSJT-X once rigctld is up*. In WSJT-X set the rig to *Hamlib NET rigctl* with network server `127.0.0.1:4532`, and turn off *Monitor returns to last used frequency*. WSJT-X only looks for `rigctld` when it starts, so start this app first or let it start WSJT-X.
