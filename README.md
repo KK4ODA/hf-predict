@@ -46,6 +46,8 @@ Taken with a real FT8 prediction from the engine (EM73tr to IO91wm, October) and
 
 ## Getting started
 
+The [user manual](docs/manual.md) explains every view and setting. In short:
+
 1. Install from [Releases](https://github.com/KK4ODA/hf-predict/releases). Enter your position in **From** (a locator such as `EM73tr`, or latitude, longitude) and a destination in **To**, pick your station preset, and press **Predict**.
 2. **Hearing.** In WSJT-X, File → Settings → Reporting, set the UDP server to `224.0.0.1`, port `2237` (a multicast group, so GridTracker, JTAlert and this app can all listen). On the Heard tab tick *Listen for WSJT-X*. To bring in history, add your `ALL.TXT` logs there (*Find logs* lists the ones in the usual folders); they are re-read on start-up, new lines only.
 3. **Radio** (optional, for scanning). Install Hamlib if WSJT-X did not ship `rigctld-wsjtx`. On the Radio tab tick *Start rigctld for me*, choose the program, your radio, its serial port and speed, and optionally *Start WSJT-X once rigctld is up*. In WSJT-X set the rig to *Hamlib NET rigctl* with network server `127.0.0.1:4532`, and turn off *Monitor returns to last used frequency*. WSJT-X only looks for `rigctld` when it starts, so start this app first or let it start WSJT-X.
@@ -54,7 +56,7 @@ Taken with a real FT8 prediction from the engine (EM73tr to IO91wm, October) and
 
 ## What it will not do, and how to read it
 
-- It never keys the transmitter and never changes the radio's mode; the only thing it sets is the frequency, only while scanning, only with your confirmation, and it reads the radio back after every change.
+- It never keys the transmitter. It sets only the frequency and mode, only while scanning, only with your confirmation, and it reads the radio back after every change. Some radios, the FTDX10 among them, recall each band's last mode on a band change; the scan sets the mode chosen on the Radio tab (DATA-U by default) when that happens, and puts your own frequency and mode back when it stops.
 - Predictions are monthly climatology from VOACAP: the share of days a path should work, not a forecast for today. Current conditions are shown so you can judge, and a storm is flagged, but they are not fed into the model.
 - "Nothing heard" is never "band closed": it depends on who is transmitting. Hearing a station shows the band is open that way for FT8; it does not show they can hear you, and your own mode may need 25 dB more.
 - Everything is stored on the computer. Nothing is sent anywhere except the requests you make to NOAA or Winlink.

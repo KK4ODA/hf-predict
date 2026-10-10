@@ -1,7 +1,9 @@
 //! Moves the radio through a listening plan: the app's one writer to the
-//! rig. It retunes only when every rule holds, reads back after each
-//! retune, pauses while WSJT-X is working a station, and puts the radio
-//! back where it was when it stops for any reason. The decisions are a
+//! rig. It retunes only when every rule holds, keeps the radio in the mode
+//! set for scanning (a band change recalls another stored mode on some
+//! radios), reads back after each change, pauses while WSJT-X is working a
+//! station, and puts the radio back where it was, frequency and mode, when
+//! it stops for any reason. The decisions are a
 //! pure function of time and what the radio and WSJT-X report, so they are
 //! tested without a radio; a runner thread carries them out.
 
@@ -12,7 +14,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use crate::radio::{Monitor, RadioState};
+use crate::radio::{mode_name, Monitor, RadioState};
 use crate::scan::{Plan, PlanItem};
 use crate::timeutil;
 
@@ -55,17 +57,49 @@ pub fn preflight(radio: Option<&RadioState>, wsjtx: WsjtxState, confirmed: bool)
     reasons
 }
 
-/// The frequency and mode after a retune must be what was asked for and
-/// the mode the radio had: a band change can recall another stored mode on
-/// some radios.
-pub fn verify_retune(expected_hz: u64, saved: &RadioState, after: &RadioState) -> Result<(), String> {
+/// The mode a scan keeps the radio in: the one set for scanning or, with
+/// none set, the one the radio had. The operator's passband goes with
+/// their own mode; another mode keeps whatever passband the radio gives it.
+pub fn scan_mode(setting: &str, saved: &RadioState) -> (String, Option<u64>) {
+    let mode = setting.trim();
+    if mode.is_empty() || mode == saved.mode {
+        (saved.mode.clone(), saved.passband_hz)
+    } else {
+        (mode.to_string(), None)
+    }
+}
+
+/// The frequency and mode after a change must be what was asked for.
+pub fn verify_retune(expected_hz: u64, mode: &str, after: &RadioState) -> Result<(), String> {
     if after.freq_hz != expected_hz {
         return Err(format!("the radio reads {} Hz after being set to {expected_hz} Hz", after.freq_hz));
     }
-    if after.mode != saved.mode {
-        return Err(format!("the mode changed from {} to {} on retuning", saved.mode, after.mode));
+    if after.mode != mode {
+        return Err(format!(
+            "the radio is in {} after being set to {}",
+            mode_name(&after.mode),
+            mode_name(mode)
+        ));
     }
     Ok(())
+}
+
+/// Sets the frequency, then the mode if the radio is not in it: a band
+/// change recalls the band's stored mode on some radios (the FTDX10 among
+/// them). True when the mode had to be set.
+pub fn retune(
+    set_freq: impl Fn(u64) -> Result<RadioState, String>,
+    set_mode: impl Fn(&str, Option<u64>) -> Result<RadioState, String>,
+    hz: u64,
+    mode: &str,
+    passband_hz: Option<u64>,
+) -> Result<bool, String> {
+    let after = set_freq(hz)?;
+    if after.freq_hz != hz || after.mode == mode {
+        return verify_retune(hz, mode, &after).map(|()| false);
+    }
+    let after = set_mode(mode, passband_hz)?;
+    verify_retune(hz, mode, &after).map(|()| true)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -160,6 +194,10 @@ pub struct ScanStatus {
     pub saved: Option<RadioState>,
     pub restored: bool,
     pub plans_run: u32,
+    /// The mode the scan keeps the radio in, as Hamlib names it.
+    pub mode: Option<String>,
+    /// Times the radio came off a band change in another mode and was set back.
+    pub mode_sets: u32,
 }
 
 impl ScanStatus {
@@ -174,11 +212,20 @@ impl ScanStatus {
             saved: None,
             restored: false,
             plans_run: 0,
+            mode: None,
+            mode_sets: 0,
         }
     }
 }
 
 type WsjtxSource = Box<dyn Fn() -> WsjtxState + Send>;
+
+/// Where the radio was when the scan began, and the mode the scan keeps it in.
+struct Hold {
+    saved: RadioState,
+    mode: String,
+    passband_hz: Option<u64>,
+}
 type Replan = Box<dyn Fn() -> Result<Plan, String> + Send>;
 
 /// Carries a scan out on a thread. Dropping it stops the scan and waits
@@ -199,7 +246,8 @@ impl Runner {
         confirmed: bool,
         replan: Option<Replan>,
     ) -> Result<Self, String> {
-        let radio = monitor.status().radio;
+        let radio_status = monitor.status();
+        let radio = radio_status.radio;
         let reasons = preflight(radio.as_ref(), wsjtx(), confirmed);
         if !reasons.is_empty() {
             return Err(format!("Cannot scan: {}.", reasons.join("; ")));
@@ -208,17 +256,20 @@ impl Runner {
             return Err("Cannot scan: the plan is empty.".into());
         }
         let saved = radio.ok_or("the radio is not connected")?;
+        let (mode, passband_hz) = scan_mode(&radio_status.config.scan_mode, &saved);
         let stop = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(ScanStatus {
             state: "running",
             detail: "Scanning.".into(),
             started_utc: Some(timeutil::now()),
             saved: Some(saved.clone()),
+            mode: Some(mode.clone()),
             ..ScanStatus::idle()
         }));
+        let hold = Hold { saved, mode, passband_hz };
         let thread = {
             let (stop, status) = (stop.clone(), status.clone());
-            std::thread::spawn(move || run(plan, saved, monitor, wsjtx, replan, stop, status))
+            std::thread::spawn(move || run(plan, hold, monitor, wsjtx, replan, stop, status))
         };
         Ok(Self { stop, status, thread: Some(thread) })
     }
@@ -248,7 +299,7 @@ impl Drop for Runner {
 
 fn run(
     plan: Plan,
-    saved: RadioState,
+    hold: Hold,
     monitor: Arc<Monitor>,
     wsjtx: WsjtxSource,
     replan: Option<Replan>,
@@ -256,6 +307,8 @@ fn run(
     status: Arc<Mutex<ScanStatus>>,
 ) {
     let update = |f: &dyn Fn(&mut ScanStatus)| f(&mut status.lock().unwrap_or_else(PoisonError::into_inner));
+    let set_freq = |hz: u64| monitor.set_freq(hz);
+    let set_mode = |mode: &str, passband_hz: Option<u64>| monitor.set_mode(mode, passband_hz);
     let mut scanner = Scanner::new(plan, timeutil::now());
     let outcome: Result<String, String> = loop {
         if stop.load(Ordering::Relaxed) {
@@ -286,8 +339,9 @@ fn run(
             }
         });
         match step.action {
-            Some(Action::Retune(hz)) => match monitor.set_freq(hz).and_then(|after| verify_retune(hz, &saved, &after)) {
-                Ok(()) => {}
+            Some(Action::Retune(hz)) => match retune(set_freq, set_mode, hz, &hold.mode, hold.passband_hz) {
+                Ok(true) => update(&|s| s.mode_sets += 1),
+                Ok(false) => {}
                 Err(e) => break Err(e),
             },
             Some(Action::Finish(reason)) => match &replan {
@@ -306,20 +360,17 @@ fn run(
         std::thread::sleep(TICK);
     };
 
-    // Whatever happened, put the radio back.
-    let restored = monitor
-        .set_freq(saved.freq_hz)
-        .and_then(|after| verify_retune(saved.freq_hz, &saved, &after));
+    // Whatever happened, put the radio back: frequency, mode and passband.
+    let saved = &hold.saved;
+    let restored = retune(set_freq, set_mode, saved.freq_hz, &saved.mode, saved.passband_hz);
     update(&|s| {
         s.current = None;
         s.next = None;
         s.restored = restored.is_ok();
+        let place = format!("{:.3} MHz {}", saved.freq_hz as f64 / 1e6, mode_name(&saved.mode));
         let back = match &restored {
-            Ok(()) => format!("The radio is back on {:.3} MHz.", saved.freq_hz as f64 / 1e6),
-            Err(e) => format!(
-                "The radio could not be put back ({e}); set it to {:.3} MHz by hand.",
-                saved.freq_hz as f64 / 1e6
-            ),
+            Ok(_) => format!("The radio is back on {place}."),
+            Err(e) => format!("The radio could not be put back ({e}); set it to {place} by hand."),
         };
         match &outcome {
             Ok(reason) => {
@@ -415,10 +466,79 @@ mod tests {
     }
 
     #[test]
-    fn a_retune_must_land_where_asked_with_the_mode_unchanged() {
-        let saved = RadioState::at(14_074_000, "USB");
-        assert!(verify_retune(7_074_000, &saved, &RadioState::at(7_074_000, "USB")).is_ok());
-        assert!(verify_retune(7_074_000, &saved, &RadioState::at(7_074_100, "USB")).unwrap_err().contains("7074100"));
-        assert!(verify_retune(7_074_000, &saved, &RadioState::at(7_074_000, "CW")).unwrap_err().contains("USB to CW"));
+    fn a_retune_must_land_where_asked_in_the_mode_asked() {
+        assert!(verify_retune(7_074_000, "PKTUSB", &RadioState::at(7_074_000, "PKTUSB")).is_ok());
+        assert!(verify_retune(7_074_000, "PKTUSB", &RadioState::at(7_074_100, "PKTUSB")).unwrap_err().contains("7074100"));
+        assert_eq!(
+            verify_retune(7_074_000, "PKTUSB", &RadioState::at(7_074_000, "USB")).unwrap_err(),
+            "the radio is in USB after being set to DATA-U"
+        );
+    }
+
+    #[test]
+    fn the_scan_mode_is_the_setting_or_the_radios_own() {
+        let mut saved = RadioState::at(3_590_000, "PKTUSB");
+        saved.passband_hz = Some(3000);
+        assert_eq!(scan_mode("PKTUSB", &saved), ("PKTUSB".to_string(), Some(3000)));
+        assert_eq!(scan_mode("", &saved), ("PKTUSB".to_string(), Some(3000)));
+        assert_eq!(scan_mode("USB", &saved), ("USB".to_string(), None));
+        saved.mode = "USB".into();
+        assert_eq!(scan_mode("PKTUSB", &saved), ("PKTUSB".to_string(), None));
+    }
+
+    /// A radio that recalls each band's stored mode on a band change, as
+    /// the FTDX10 does through Hamlib: 80 m is stored in USB.
+    struct BandStack {
+        state: std::cell::RefCell<RadioState>,
+        writes: std::cell::RefCell<Vec<String>>,
+        mode_sticks: bool,
+    }
+
+    impl BandStack {
+        fn new(hz: u64, mode: &str, mode_sticks: bool) -> Self {
+            Self { state: RadioState::at(hz, mode).into(), writes: Vec::new().into(), mode_sticks }
+        }
+
+        fn set_freq(&self, hz: u64) -> Result<RadioState, String> {
+            self.writes.borrow_mut().push(format!("freq {hz}"));
+            let mut state = self.state.borrow_mut();
+            let mode = if hz < 4_000_000 { "USB".to_string() } else { state.mode.clone() };
+            *state = RadioState::at(hz, &mode);
+            Ok(state.clone())
+        }
+
+        fn set_mode(&self, mode: &str, passband_hz: Option<u64>) -> Result<RadioState, String> {
+            self.writes.borrow_mut().push(format!("mode {mode} {passband_hz:?}"));
+            let mut state = self.state.borrow_mut();
+            if self.mode_sticks {
+                state.mode = mode.to_string();
+                state.passband_hz = passband_hz;
+            }
+            Ok(state.clone())
+        }
+
+        fn retune(&self, hz: u64, mode: &str, passband_hz: Option<u64>) -> Result<bool, String> {
+            retune(|hz| self.set_freq(hz), |m, p| self.set_mode(m, p), hz, mode, passband_hz)
+        }
+    }
+
+    #[test]
+    fn a_band_change_that_recalls_another_mode_is_set_back() {
+        let radio = BandStack::new(7_074_000, "PKTUSB", true);
+        // Same mode after the change: only the frequency is set.
+        assert_eq!(radio.retune(14_074_000, "PKTUSB", Some(3000)), Ok(false));
+        // 80 m recalls USB: the mode is set back to DATA-U with the passband.
+        assert_eq!(radio.retune(3_573_000, "PKTUSB", Some(3000)), Ok(true));
+        assert_eq!(radio.state.borrow().mode, "PKTUSB");
+        assert_eq!(
+            *radio.writes.borrow(),
+            ["freq 14074000", "freq 3573000", "mode PKTUSB Some(3000)"]
+        );
+    }
+
+    #[test]
+    fn a_mode_that_will_not_stick_stops_the_scan() {
+        let radio = BandStack::new(7_074_000, "PKTUSB", false);
+        assert_eq!(radio.retune(3_573_000, "PKTUSB", None), Err("the radio is in USB after being set to DATA-U".into()));
     }
 }

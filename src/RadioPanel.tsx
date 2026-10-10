@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { FoundProgram, ListenerStatus, RadioConfig, RadioStatus, RigModel } from "./types";
-import { Health, Pill } from "./ui";
+import { Health, Pill, modeName } from "./ui";
 
 const POLL_MS = 2000;
 const BAUDS = [4800, 9600, 19200, 38400, 57600, 115200];
 
 const mhz = (hz: number) => (hz / 1e6).toFixed(3);
+
+/** Hamlib's names, which rigctld takes. */
+const SCAN_MODES: [string, string][] = [
+  ["PKTUSB", "DATA-U (Hamlib PKTUSB)"],
+  ["USB", "USB"],
+  ["", "Keep the mode the radio has when the scan starts"],
+];
 
 function age(seconds: number): string {
   return seconds < 90 ? `${Math.max(0, Math.round(seconds))} s` : `${Math.round(seconds / 60)} min`;
@@ -103,7 +110,7 @@ export function RadioPanel() {
       <div className="view-head">
         <h2>Radio</h2>
         <Pill state={health}>{healthLabel}</Pill>
-        <span className="hint">Reads the radio, and sets its frequency only while scanning. It never transmits.</span>
+        <span className="hint">Reads the radio, and sets its frequency and mode only while scanning. It never transmits.</span>
       </div>
       {error && <p className="error">{error}</p>}
 
@@ -115,7 +122,7 @@ export function RadioPanel() {
               <small>MHz</small>
             </span>
             <span>
-              <span className="band-name">{radio.band}</span> {radio.mode}
+              <span className="band-name">{radio.band}</span> {modeName(radio.mode)}
               {radio.passbandHz !== null && <span className="hint"> {radio.passbandHz} Hz</span>}
             </span>
             {radio.ptt ? <Pill state="alert">Transmitting</Pill> : <Pill state="ok">Receiving</Pill>}
@@ -269,6 +276,25 @@ export function RadioPanel() {
           {launch && draft.startWsjtx && <p className="hint">{launch}</p>}
         </div>
 
+        <div className="settings-group">
+          <div className="form-grid">
+            <label className="span-2">
+              Mode while scanning
+              <select value={draft.scanMode} onChange={(e) => setDraft({ ...draft, scanMode: e.target.value })}>
+                {SCAN_MODES.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="hint">
+            Some radios recall each band's last mode when the band changes. After every retune the scan
+            sets this mode if the radio came up in another, and puts your own mode back when it stops.
+          </p>
+        </div>
+
         <div className="settings-actions">
           <button type="button" className="primary" onClick={apply}>
             Apply
@@ -289,7 +315,7 @@ export function RadioPanel() {
       <h3>Setting up</h3>
       <p className="note">
         This app never transmits. It reads frequency, mode, PTT, split and VFO, and changes only
-        the frequency, and only while you run a scan from the Plan view. It shares the radio with WSJT-X through Hamlib's{" "}
+        the frequency and mode, and only while you run a scan from the Plan view. It shares the radio with WSJT-X through Hamlib's{" "}
         <code>rigctld</code>. Tick <em>Start rigctld for me</em>, choose the program, your radio,
         its serial port and speed, and Apply: the app starts the daemon, bound to this computer,
         and stops it when the app closes. Then in WSJT-X set the rig to <em>Hamlib NET rigctl</em>{" "}

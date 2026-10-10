@@ -1,7 +1,8 @@
 //! Radio control through a `rigctld` shared with WSJT-X, which the app can
-//! start itself. The app reads frequency, mode, PTT, split and VFO, and
-//! can set the frequency, which the scanner alone does. The interface has
-//! no transmit function and cannot change the mode.
+//! start itself. The app reads frequency, mode, PTT, split and VFO. The
+//! scanner alone changes anything: the frequency, and the mode when a band
+//! change recalled another, since some radios keep a mode per band. The
+//! interface has no transmit function.
 
 pub mod daemon;
 pub mod rigctld;
@@ -53,8 +54,23 @@ pub trait RadioController: Send {
     fn name(&self) -> &str;
     /// Reads everything the app needs in one go.
     fn read(&mut self) -> Result<RadioState, String>;
-    /// The one thing the app changes on the radio.
+    /// Sets the frequency; only the scanner does.
     fn set_freq(&mut self, hz: u64) -> Result<(), String>;
+    /// Sets the mode, as Hamlib names it, and the passband when given;
+    /// `None` leaves the passband alone. Only the scanner does, after a
+    /// band change.
+    fn set_mode(&mut self, mode: &str, passband_hz: Option<u64>) -> Result<(), String>;
+}
+
+/// Hamlib's mode names as radios show them: `PKTUSB` is DATA-U.
+pub fn mode_name(mode: &str) -> &str {
+    match mode {
+        "PKTUSB" => "DATA-U",
+        "PKTLSB" => "DATA-L",
+        "PKTFM" => "DATA-FM",
+        "PKTAM" => "DATA-AM",
+        other => other,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -74,6 +90,9 @@ pub struct RadioConfig {
     /// Start WSJT-X once rigctld answers, so it finds the daemon up.
     pub start_wsjtx: bool,
     pub wsjtx_path: String,
+    /// The mode a scan keeps the radio in, as Hamlib names it (`PKTUSB` is
+    /// DATA-U). Empty keeps the mode the radio had when the scan began.
+    pub scan_mode: String,
 }
 
 impl Default for RadioConfig {
@@ -92,6 +111,7 @@ impl Default for RadioConfig {
             baud: 38_400,
             start_wsjtx: false,
             wsjtx_path: String::new(),
+            scan_mode: "PKTUSB".into(),
         }
     }
 }
@@ -134,12 +154,18 @@ const RETRY: Duration = Duration::from_secs(5);
 const STOP_CHECK: Duration = Duration::from_millis(100);
 /// Attempts to reach a `rigctld` this app just started, one second apart.
 const STARTUP_ATTEMPTS: u32 = 8;
-/// A retune request older than this is dropped rather than carried out late.
+/// A request older than this is dropped rather than carried out late.
 const REQUEST_TTL: Duration = Duration::from_secs(5);
 
-/// Set the frequency and reply with the state read back.
+/// A change to make on the radio.
+enum Change {
+    Freq(u64),
+    Mode(String, Option<u64>),
+}
+
+/// Make a change and reply with the state read back.
 struct Request {
-    hz: u64,
+    change: Change,
     sent: Instant,
     reply: Sender<Result<RadioState, String>>,
 }
@@ -207,9 +233,19 @@ impl Monitor {
     /// Sets the frequency on the monitor's own connection and returns what
     /// the radio reads afterwards. Fails when the radio is not connected.
     pub fn set_freq(&self, hz: u64) -> Result<RadioState, String> {
+        self.request(Change::Freq(hz))
+    }
+
+    /// Sets the mode, and the passband when given, and returns what the
+    /// radio reads afterwards.
+    pub fn set_mode(&self, mode: &str, passband_hz: Option<u64>) -> Result<RadioState, String> {
+        self.request(Change::Mode(mode.to_string(), passband_hz))
+    }
+
+    fn request(&self, change: Change) -> Result<RadioState, String> {
         let (reply, answer) = mpsc::channel();
         self.requests
-            .send(Request { hz, sent: Instant::now(), reply })
+            .send(Request { change, sent: Instant::now(), reply })
             .map_err(|_| "the radio monitor has stopped".to_string())?;
         match answer.recv_timeout(REQUEST_TTL + Duration::from_secs(5)) {
             Ok(result) => result,
@@ -239,7 +275,7 @@ fn pause(stop: &AtomicBool, duration: Duration) -> bool {
     !stop.load(Ordering::Relaxed)
 }
 
-/// Waits out the polling interval while serving retune requests on the
+/// Waits out the polling interval while serving the scanner's requests on the
 /// connection. False when asked to stop.
 fn serve(
     radio: &mut dyn RadioController,
@@ -259,10 +295,14 @@ fn serve(
         }
         match inbox.recv_timeout(STOP_CHECK.min(until - now)) {
             Ok(request) if request.sent.elapsed() > REQUEST_TTL => {
-                let _ = request.reply.send(Err("the retune request waited too long and was dropped".into()));
+                let _ = request.reply.send(Err("the request to the radio waited too long and was dropped".into()));
             }
             Ok(request) => {
-                let result = radio.set_freq(request.hz).and_then(|()| radio.read());
+                let result = match &request.change {
+                    Change::Freq(hz) => radio.set_freq(*hz),
+                    Change::Mode(mode, passband_hz) => radio.set_mode(mode, *passband_hz),
+                }
+                .and_then(|()| radio.read());
                 if let Ok(state) = &result {
                     let mut s = status.lock().unwrap_or_else(PoisonError::into_inner);
                     s.radio = Some(state.clone());

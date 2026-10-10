@@ -1,8 +1,9 @@
 //! A client for Hamlib's `rigctld`, using its extended response protocol
 //! (commands prefixed with `+`), so that every reply ends in an `RPRT` line
-//! and can be framed and checked. Besides reads, this client sends exactly
-//! one kind of command: setting the frequency. It cannot key the
-//! transmitter or change the mode.
+//! and can be framed and checked. Besides reads, this client sends two
+//! kinds of command, for the scanner only: setting the frequency, and
+//! setting the mode when a band change recalled another. It cannot key the
+//! transmitter.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -102,6 +103,16 @@ pub fn parse_reply(command: &str, lines: &[String]) -> Result<Vec<(String, Strin
         .collect())
 }
 
+/// The `set_mode` command line. Hamlib takes a passband of -1 as "leave it
+/// as it is". The mode is checked, since it comes from the settings.
+pub fn set_mode_line(mode: &str, passband_hz: Option<u64>) -> Result<String, String> {
+    if mode.is_empty() || !mode.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(format!("{mode:?} is not a Hamlib mode name"));
+    }
+    let passband = passband_hz.filter(|p| *p > 0).map_or_else(|| "-1".to_string(), |p| p.to_string());
+    Ok(format!("+\\set_mode {mode} {passband}\n"))
+}
+
 fn field<'a>(fields: &'a [(String, String)], key: &str) -> Option<&'a str> {
     fields.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
 }
@@ -113,6 +124,10 @@ impl RadioController for Rigctld {
 
     fn set_freq(&mut self, hz: u64) -> Result<(), String> {
         self.send("set_freq", &format!("+\\set_freq {hz}\n")).map(|_| ())
+    }
+
+    fn set_mode(&mut self, mode: &str, passband_hz: Option<u64>) -> Result<(), String> {
+        self.send("set_mode", &set_mode_line(mode, passband_hz)?).map(|_| ())
     }
 
     fn read(&mut self) -> Result<RadioState, String> {
@@ -155,6 +170,15 @@ mod tests {
             parse_reply("get_split_vfo", &lines("get_split_vfo:\nSplit: 1\nTX VFO: VFOB\nRPRT 0")).unwrap(),
             [("Split".to_string(), "1".to_string()), ("TX VFO".to_string(), "VFOB".to_string())]
         );
+    }
+
+    #[test]
+    fn the_mode_line_keeps_or_sets_the_passband_and_refuses_odd_names() {
+        assert_eq!(set_mode_line("PKTUSB", Some(3000)).unwrap(), "+\\set_mode PKTUSB 3000\n");
+        assert_eq!(set_mode_line("PKTUSB", None).unwrap(), "+\\set_mode PKTUSB -1\n");
+        assert_eq!(set_mode_line("USB", Some(0)).unwrap(), "+\\set_mode USB -1\n");
+        assert!(set_mode_line("", None).is_err());
+        assert!(set_mode_line("USB\n+\\set_ptt 1", None).is_err());
     }
 
     #[test]
