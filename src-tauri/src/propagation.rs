@@ -60,7 +60,7 @@ pub struct PredictionRequest {
 
 /// Predicted values for one frequency in one hour. Field names follow the
 /// VOACAP output rows given in each comment.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FrequencyPrediction {
     pub freq_mhz: f64,
@@ -105,7 +105,7 @@ pub struct FrequencyPrediction {
     pub snr_at_required_reliability_db: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HourPrediction {
     /// UTC hour as VOACAP labels it: 1 to 24, where 24 is 00 UTC.

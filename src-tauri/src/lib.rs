@@ -1,3 +1,4 @@
+pub mod calibration;
 pub mod compare;
 pub mod coverage;
 pub mod engine;

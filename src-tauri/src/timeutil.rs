@@ -46,6 +46,12 @@ pub fn date_string(unix_seconds: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+/// The UTC year, month, day and hour of a time.
+pub fn civil(unix_seconds: i64) -> (i32, u32, u32, u32) {
+    let (year, month, day) = civil_from_days(unix_seconds.div_euclid(SECONDS_PER_DAY));
+    (year, month, day, (unix_seconds.rem_euclid(SECONDS_PER_DAY) / 3600) as u32)
+}
+
 /// Month number from an English name or three-letter abbreviation.
 pub fn month_number(name: &str) -> Option<u32> {
     const MONTHS: [&str; 12] =

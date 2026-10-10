@@ -565,6 +565,25 @@ External rows carry `origin = EXTERNAL`, are never mixed into local metrics, and
 
 ---
 
+### First calibration against nine months of receptions (2026-10-10)
+
+The first station's `ALL.TXT` (55,229 lines, December 2025 to September 2026; mostly 20 m, then 15, 10, 40 and 30 m) was run through `calibration::calibrate`: for every locator heard, the FT8 reliability VOACAP gives that path at that hour and month, with a 100 W isotropic station and residential noise assumed at both ends because the heard stations' equipment is unknown. 48,096 circuits took 143 s on the development PC. For each bin of predicted reliability the table gives the share of decodes that fell in it, and in how many of the hours the receiver was listening on that band a locator heard that month was actually heard.
+
+| Predicted reliability | Share of decodes | Heard in listening hours |
+|---|---|---|
+| 0–10% | 5.0% | 17% |
+| 10–30% | 4.2% | 14–22% |
+| 30–50% | 5.7% | 27–30% |
+| 50–70% | 16.0% | 34–35% |
+| 70–90% | 22.5% | 38–42% |
+| 90–100% | 46.8% | 45% |
+
+On 20 m alone the curve runs from 9% to 39% without a step down. The model orders paths correctly. The absolute rate is bounded by whether the station was transmitting at all, so only the shape is read.
+
+Two cautions. On 10 m and 15 m a fifth of all decodes came in hours the model put under 10%, and such hours still produced a decode six times in ten: the summer sporadic-E season (May was the busiest month in the log) is not in the model, and 0 dBi at both ends is pessimistic. This is exactly the case the Compare tab labels INVESTIGATE, and on the high bands in summer it is common, not rare. Second, the log records nothing in hours with no decode at all, so dead hours are missing from the listening count; that flattens the curve, and the true separation is somewhat larger.
+
+Implications: the fixed reliability tiers (70% and 30%) are consistent with the data; the observed side is essential on the high bands; and a History screen can show this curve per band from the station's own database, which is the next step. The run is repeatable with `HFP_ALL_TXT=... cargo test calibration::tests::real_log -- --ignored --nocapture`.
+
 ## 14. UI and software architecture
 
 ### Stack recommendation: Tauri 2
