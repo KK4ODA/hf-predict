@@ -294,7 +294,7 @@ function App() {
     predict();
   }, [request, txPosition, rxPosition, predict]);
 
-  // Keyboard: Ctrl+Enter predicts, Alt+1..9 switch views, [ and ] step the hour.
+  // Keyboard: Ctrl+Enter predicts, Alt+1..9 and Alt+0 switch to the first ten views, [ and ] step the hour.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -389,7 +389,7 @@ function App() {
                     key={item.id}
                     type="button"
                     aria-current={view === item.id ? "page" : undefined}
-                    title={`Alt+${index === 9 ? 0 : index + 1}`}
+                    title={index < 10 ? `Alt+${index === 9 ? 0 : index + 1}` : undefined}
                     onClick={() => setView(item.id)}
                   >
                     {item.label}
