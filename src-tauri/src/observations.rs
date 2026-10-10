@@ -4,12 +4,14 @@
 //! on a frequency. The intervals are what make "nothing heard" meaningful:
 //! without them it cannot be told apart from "not listening".
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+
+use crate::geo::LatLon;
 
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS observations (
@@ -177,6 +179,58 @@ pub struct HeardStation {
     pub last_heard_utc: i64,
     pub distance_km: Option<f64>,
     pub bearing_deg: Option<f64>,
+}
+
+/// A distant station heard sending signal reports to this station, or to
+/// stations near it: evidence of the transmit direction, which this
+/// receiver cannot measure on its own.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HearingStation {
+    pub callsign: String,
+    pub grid: String,
+    /// Centre of the locator square.
+    pub lat: f64,
+    pub lon: f64,
+    pub band: String,
+    /// From this receiver.
+    pub distance_km: f64,
+    pub bearing_deg: f64,
+    /// The strongest report it gave, dB in 2500 Hz.
+    pub best_report_db: i32,
+    /// Distinct stations it reported, near this one or this one itself.
+    pub reported: Vec<ReportedStation>,
+    /// It reported this station's own callsign.
+    pub heard_you: bool,
+    pub last_utc: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportedStation {
+    pub callsign: String,
+    /// From this receiver; 0 for this station itself.
+    pub distance_km: f64,
+    pub report_db: i32,
+}
+
+/// Recipients within this of the receiver always count as near it.
+const NEAR_MIN_KM: f64 = 300.0;
+/// Farther than this never does.
+const NEAR_MAX_KM: f64 = 1000.0;
+/// In between, the allowance grows with the sender's distance: seen from far
+/// away, a station a few hundred kilometres off is in the same direction.
+const NEAR_SHARE: f64 = 0.15;
+
+/// Whether a report to a station `recipient_km` from this receiver says
+/// something about how a sender `sender_km` away hears this station.
+pub fn near_this_station(recipient_km: f64, sender_km: f64) -> bool {
+    recipient_km <= (sender_km * NEAR_SHARE).clamp(NEAR_MIN_KM, NEAR_MAX_KM) && recipient_km < sender_km / 2.0
+}
+
+/// A callsign without the angle brackets WSJT-X puts round hashed ones.
+fn bare(call: &str) -> String {
+    call.trim().trim_start_matches('<').trim_end_matches('>').to_uppercase()
 }
 
 pub struct Database {
@@ -413,6 +467,98 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(text)
     }
 
+    /// The latest locator each of these callsigns sent, by callsign.
+    fn last_grids(&self, calls: &BTreeSet<String>) -> Result<BTreeMap<String, String>, String> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare(
+                "SELECT grid FROM observations WHERE sender = ?1 AND grid IS NOT NULL
+                 ORDER BY time_utc DESC LIMIT 1",
+            )
+            .map_err(text)?;
+        let mut grids = BTreeMap::new();
+        for call in calls {
+            let grid: Option<String> = statement.query_row([call], |r| r.get(0)).optional().map_err(text)?;
+            if let Some(grid) = grid {
+                grids.insert(call.clone(), grid);
+            }
+        }
+        Ok(grids)
+    }
+
+    /// Distant stations heard sending signal reports to `own_call` or to
+    /// stations near this receiver since `since_utc`, one per station and
+    /// band. The receiver is where each decode was made, or `receiver` when
+    /// the decode does not say.
+    pub fn hearing_your_area(
+        &self,
+        since_utc: i64,
+        band: Option<&str>,
+        own_call: Option<&str>,
+        receiver: Option<LatLon>,
+    ) -> Result<Vec<HearingStation>, String> {
+        let own = own_call.map(bare).filter(|c| !c.is_empty());
+        let reports = self.select(
+            "WHERE time_utc >= ?1 AND kind IN ('report', 'rogerReport') AND sender IS NOT NULL
+               AND addressee IS NOT NULL AND grid IS NOT NULL AND settling = 0
+             ORDER BY time_utc, id",
+            &[since_utc],
+        )?;
+        let reports: Vec<Observation> =
+            reports.into_iter().filter(|o| band.is_none_or(|wanted| wanted == o.band)).collect();
+        let recipients: BTreeSet<String> = reports
+            .iter()
+            .filter_map(|o| o.addressee.as_deref().map(bare))
+            .filter(|call| own.as_deref() != Some(call.as_str()))
+            .collect();
+        let grids = self.last_grids(&recipients)?;
+
+        let mut stations: BTreeMap<(String, String), HearingStation> = BTreeMap::new();
+        for o in reports {
+            let (Some(sender), Some(addressee), Some(grid)) = (&o.sender, &o.addressee, &o.grid) else { continue };
+            let Some(report_db) = crate::wsjtx::ft8text::parse(&o.message).report_db else { continue };
+            let here = o.rx_grid.as_deref().and_then(|g| crate::geo::from_maidenhead(g).ok()).or(receiver);
+            let (Some(here), Ok(there)) = (here, crate::geo::from_maidenhead(grid)) else { continue };
+            let sender_km = crate::geo::distance_km(here, there);
+            let recipient = bare(addressee);
+            let heard_you = own.as_deref() == Some(recipient.as_str());
+            let recipient_km = if heard_you {
+                0.0
+            } else {
+                let Some(position) = grids.get(&recipient).and_then(|g| crate::geo::from_maidenhead(g).ok()) else {
+                    continue;
+                };
+                crate::geo::distance_km(here, position)
+            };
+            if !heard_you && !near_this_station(recipient_km, sender_km) {
+                continue;
+            }
+            let station = stations.entry((o.band.clone(), bare(sender))).or_insert(HearingStation {
+                callsign: bare(sender),
+                grid: grid.clone(),
+                lat: there.lat,
+                lon: there.lon,
+                band: o.band.clone(),
+                distance_km: sender_km,
+                bearing_deg: crate::geo::bearing_deg(here, there),
+                best_report_db: report_db,
+                reported: Vec::new(),
+                heard_you: false,
+                last_utc: o.time_utc,
+            });
+            station.best_report_db = station.best_report_db.max(report_db);
+            station.heard_you |= heard_you;
+            station.last_utc = o.time_utc;
+            match station.reported.iter_mut().find(|r| r.callsign == recipient) {
+                Some(seen) => seen.report_db = seen.report_db.max(report_db),
+                None => station.reported.push(ReportedStation { callsign: recipient, distance_km: recipient_km, report_db }),
+            }
+        }
+        let mut stations: Vec<HearingStation> = stations.into_values().collect();
+        stations.sort_by(|a, b| b.last_utc.cmp(&a.last_utc).then(a.callsign.cmp(&b.callsign)));
+        Ok(stations)
+    }
+
     /// The latest observations, newest first.
     pub fn recent(&self, limit: u32) -> Result<Vec<Observation>, String> {
         self.select("ORDER BY time_utc DESC, id DESC LIMIT ?1", &[i64::from(limit)])
@@ -640,6 +786,70 @@ mod tests {
             low_confidence: false,
             settling: false,
         }
+    }
+
+    /// Times the search over a real database, opened read-only by copy:
+    /// `HFP_DB=path/to/observations.db cargo test --lib hearing_on_real_data -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn hearing_on_real_data() {
+        let Ok(path) = std::env::var("HFP_DB") else { return };
+        let copy = std::env::temp_dir().join("hfp-hearing-check.db");
+        std::fs::copy(&path, &copy).unwrap();
+        let db = Database::open(&copy).unwrap();
+        let started = std::time::Instant::now();
+        let found = db.hearing_your_area(0, None, None, None).unwrap();
+        let reports: usize = found.iter().map(|s| s.reported.len()).sum();
+        println!("{} stations hearing this area ({} reports) in {:?}", found.len(), reports, started.elapsed());
+        for s in found.iter().take(5) {
+            println!("  {} {} {} {:.0} km best {} dB, reported {:?}", s.band, s.callsign, s.grid, s.distance_km, s.best_report_db,
+                s.reported.iter().map(|r| format!("{} {:.0} km", r.callsign, r.distance_km)).collect::<Vec<_>>());
+        }
+        let _ = std::fs::remove_file(&copy);
+    }
+
+    #[test]
+    fn near_this_station_grows_with_the_senders_distance() {
+        assert!(near_this_station(300.0, 1000.0));
+        assert!(!near_this_station(301.0, 1000.0));
+        assert!(near_this_station(900.0, 6700.0));
+        assert!(!near_this_station(1100.0, 9000.0), "never beyond 1000 km");
+        assert!(!near_this_station(200.0, 350.0), "the recipient must be nearer here than there");
+    }
+
+    #[test]
+    fn finds_distant_stations_reporting_this_one_or_its_neighbours() {
+        let db = Database::in_memory().unwrap();
+        let cq = |time: i64, call: &str, grid: &str| Observation {
+            message: format!("CQ {call} {grid}"),
+            grid: Some(grid.into()),
+            ..observation(time, call, -5)
+        };
+        let report = |time: i64, sender: &str, grid: &str, to: &str, value: &str| Observation {
+            message: format!("{to} {sender} {value}"),
+            kind: "report".into(),
+            sender: Some(sender.into()),
+            addressee: Some(to.into()),
+            grid: Some(grid.into()),
+            ..observation(time, sender, -14)
+        };
+        // A neighbour about 100 km away and a station in California.
+        db.insert(&cq(100, "N4NB", "EM74")).unwrap();
+        db.insert(&cq(115, "W6FAR", "CM87")).unwrap();
+        // London reports both, and this station.
+        db.insert(&report(200, "G0XYZ", "IO91", "N4NB", "-07")).unwrap();
+        db.insert(&report(215, "G0XYZ", "IO91", "W6FAR", "-02")).unwrap();
+        db.insert(&report(230, "G0XYZ", "IO91", "<KK4ODA>", "-12")).unwrap();
+
+        let found = db.hearing_your_area(0, None, Some("kk4oda"), None).unwrap();
+        assert_eq!(found.len(), 1);
+        let london = &found[0];
+        assert_eq!((london.callsign.as_str(), london.best_report_db, london.heard_you), ("G0XYZ", -7, true));
+        let reported: Vec<(&str, i32)> = london.reported.iter().map(|r| (r.callsign.as_str(), r.report_db)).collect();
+        assert_eq!(reported, [("N4NB", -7), ("KK4ODA", -12)], "California is too far from here to count");
+        assert!(london.distance_km > 6000.0 && (40.0..60.0).contains(&london.bearing_deg));
+        assert!(db.hearing_your_area(0, Some("40 m"), None, None).unwrap().is_empty());
+        assert!(db.hearing_your_area(300, None, None, None).unwrap().is_empty());
     }
 
     #[test]

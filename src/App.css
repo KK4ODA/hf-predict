@@ -1214,6 +1214,17 @@ td.cell {
   border-radius: 50%;
 }
 
+/* A station heard reporting this one's area: the other direction, so an
+   amber outline rather than the filled amber of a station heard. */
+.swatch.ring {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--meas);
+  vertical-align: -1px;
+}
+
 .swatch.line {
   height: 2px;
   width: 18px;
@@ -1791,6 +1802,40 @@ table.compare .rec .caution {
   fill: var(--meas);
   stroke: var(--sea);
   stroke-width: 1.5;
+}
+
+.map .hearing-halo {
+  fill: none;
+  stroke: var(--sea);
+  stroke-width: 4;
+}
+
+.map .hearing-station {
+  fill: none;
+  stroke: var(--meas);
+  stroke-width: 2;
+}
+
+.tooltip .tooltip-more {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+
+/* The first line of a heard cell is one phrase; only the examples wrap. */
+table.compare .heardcell > span:first-child {
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  table.compare .whole-band {
+    display: none;
+  }
+}
+
+table.hearing .reported {
+  white-space: normal;
+  min-width: 220px;
 }
 
 .map .coverage-cell {

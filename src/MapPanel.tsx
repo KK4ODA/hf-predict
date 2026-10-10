@@ -2,8 +2,8 @@ import { hourBoth, Zone } from "./localtime";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WorldMap } from "./WorldMap";
-import { RelScale } from "./ui";
-import { Band, Coverage, HeardStation, LatLon, Mode, StationProfile } from "./types";
+import { RelScale, Ring } from "./ui";
+import { Band, Coverage, HeardStation, LatLon, Mode, StationProfile, HearingStation, HearingYourArea } from "./types";
 
 type Props = {
   txPosition: string;
@@ -83,6 +83,29 @@ function useHeard(minutes: number, band: string): [HeardStation[], string] {
   return [stations, error];
 }
 
+/** Stations heard reporting this one's area on one band, refreshed while shown. */
+function useHearing(minutes: number, band: string, receiver: string): HearingStation[] {
+  const [stations, setStations] = useState<HearingStation[]>([]);
+  useEffect(() => {
+    if (minutes === 0) {
+      setStations([]);
+      return;
+    }
+    let current = true;
+    const poll = () =>
+      invoke<HearingYourArea>("hearing_your_area", { minutes, band, receiver })
+        .then((found) => current && setStations(found.stations))
+        .catch(() => current && setStations([]));
+    poll();
+    const timer = setInterval(poll, HEARD_POLL_MS * 3);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, [minutes, band, receiver]);
+  return stations;
+}
+
 /** The map: picking either end of the path, predicted coverage, heard stations. */
 export function MapPanel(props: Props) {
   const { txPosition, rxPosition, year, month, ssn, txStation, rxStation, mode, reliability, clockHour, zone } =
@@ -97,6 +120,8 @@ export function MapPanel(props: Props) {
   const [coverage, setCoverage] = useState<CoverageState>({ kind: "idle" });
   const [heardMinutes, setHeardMinutes] = useState(60);
   const [heard, heardError] = useHeard(heardMinutes, band.name);
+  const [showHearing, setShowHearing] = useState(true);
+  const hearing = useHearing(showHearing ? heardMinutes : 0, band.name, txPosition);
 
   // A coverage map describes the inputs it was computed from; drop it when they change.
   useEffect(() => {
@@ -169,6 +194,15 @@ export function MapPanel(props: Props) {
             </option>
           ))}
         </select>
+        <label className="inline">
+          <input
+            type="checkbox"
+            checked={showHearing}
+            disabled={heardMinutes === 0}
+            onChange={(e) => setShowHearing(e.target.checked)}
+          />
+          Stations hearing your area
+        </label>
       </div>
       {picking && <p className="note">Click the map to set the {picking === "from" ? "From" : "To"} position. Press the button again to cancel.</p>}
       {!from && <p className="note">Enter a From position, or set it on the map, to compute coverage.</p>}
@@ -183,6 +217,7 @@ export function MapPanel(props: Props) {
         clockHour={clockHour}
         coverage={coverage.kind === "done" ? { data: coverage.data, bandIndex } : null}
         heard={heard}
+        hearing={hearing}
         picking={picking !== null}
         onPick={pick}
       />
@@ -196,6 +231,11 @@ export function MapPanel(props: Props) {
           <span>
             <span className="swatch meas dot" /> {heard.length} {heard.length === 1 ? "station" : "stations"} heard on{" "}
             {band.name}
+          </span>
+        )}
+        {heardMinutes > 0 && showHearing && (
+          <span>
+            <Ring /> {hearing.length} hearing your area
           </span>
         )}
         <span>
@@ -215,6 +255,8 @@ export function MapPanel(props: Props) {
           Dots: stations this receiver decoded on {band.name}, at the centre of the locator each sent.
           They show what was heard from here, which depends on who was transmitting; the shading
           predicts where a signal from here would be heard.
+          {showHearing &&
+            " Rings: stations heard sending a signal report to you or to a station near you, so they hear your area. A dot inside a ring was heard both ways."}
         </p>
       )}
     </section>

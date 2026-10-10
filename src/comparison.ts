@@ -67,6 +67,7 @@ export function useComparison(
       destination: prediction.rx,
       pathBearingDeg: prediction.txBearingDeg,
       pathDistanceKm: prediction.distanceKm,
+      receiver: prediction.tx,
       bands: prediction.bands.map((band, i) => ({
         name: band.name,
         modeReliability: hour.frequencies[i].reliability,

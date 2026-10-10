@@ -5,8 +5,8 @@ import type { Feature, LineString } from "geojson";
 import { feature } from "topojson-client";
 import type { Topology } from "topojson-specification";
 import landTopology from "world-atlas/land-110m.json";
-import { Coverage, CoverageCell, HeardStation, LatLon } from "./types";
-import { relFill } from "./ui";
+import { Coverage, CoverageCell, HeardStation, HearingStation, LatLon } from "./types";
+import { relFill, signedDb } from "./ui";
 
 const WIDTH = 760;
 const HEIGHT = 380;
@@ -70,12 +70,14 @@ type Props = {
   coverage: { data: Coverage; bandIndex: number } | null;
   /** Stations this receiver has decoded, drawn over the coverage. */
   heard: HeardStation[];
+  /** Stations heard reporting this station's area, drawn as rings. */
+  hearing?: HearingStation[];
   /** When set, a click reports the position under the pointer. */
   picking: boolean;
   onPick: (position: LatLon) => void;
 };
 
-type Hover = { x: number; y: number; cell?: CoverageCell; station?: HeardStation };
+type Hover = { x: number; y: number; cell?: CoverageCell; station?: HeardStation; hearing?: HearingStation };
 type Drag = { start: [number, number]; view: View; moved: boolean };
 
 /** The pointer in frame units, accounting for the border and any letterboxing. */
@@ -88,7 +90,7 @@ function pointAt(svg: SVGSVGElement, clientX: number, clientY: number): [number,
 
 /** World map with the path, day and night, predicted coverage and heard stations. */
 export function WorldMap(props: Props) {
-  const { from, to, longPath, month, clockHour, coverage, heard, picking, onPick } = props;
+  const { from, to, longPath, month, clockHour, coverage, heard, hearing = [], picking, onPick } = props;
   const [hover, setHover] = useState<Hover | null>(null);
   const [view, setView] = useState<View>(HOME);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -135,6 +137,26 @@ export function WorldMap(props: Props) {
       }),
     [heard, view],
   );
+
+  const rings = useMemo(
+    () =>
+      hearing.map((station) => {
+        const [x, y] = projection([station.lon, station.lat]) ?? [0, 0];
+        return { station, x: x * view.k + view.x, y: y * view.k + view.y };
+      }),
+    [hearing, view],
+  );
+
+  function ringNear([px, py]: [number, number]): HearingStation | undefined {
+    let nearest: { station: HearingStation; distance: number } | undefined;
+    for (const { station, x, y } of rings) {
+      const distance = Math.hypot(x - px, y - py);
+      if (distance <= STATION_REACH && (!nearest || distance < nearest.distance)) {
+        nearest = { station, distance };
+      }
+    }
+    return nearest?.station;
+  }
 
   function positionAt([px, py]: [number, number]): LatLon | null {
     const inverted = projection.invert?.([(px - view.x) / view.k, (py - view.y) / view.k]);
@@ -189,11 +211,12 @@ export function WorldMap(props: Props) {
     }
     const position = positionAt(point);
     const station = stationNear(point);
+    const ring = ringNear(point);
     const cell = position ? cellAt(position) : undefined;
     const box = event.currentTarget.getBoundingClientRect();
     setHover(
-      station || cell
-        ? { x: event.clientX - box.left, y: event.clientY - box.top, cell, station }
+      station || ring || cell
+        ? { x: event.clientX - box.left, y: event.clientY - box.top, cell, station, hearing: ring }
         : null,
     );
   };
@@ -265,6 +288,12 @@ export function WorldMap(props: Props) {
           {route && <path className="route-halo" d={route} vectorEffect="non-scaling-stroke" />}
           {route && <path className="route" d={route} vectorEffect="non-scaling-stroke" />}
         </g>
+        {rings.map(({ station, x, y }) => (
+          <g key={`ring ${station.band} ${station.callsign}`}>
+            <circle className="hearing-halo" cx={x} cy={y} r={6.5} />
+            <circle className="hearing-station" cx={x} cy={y} r={6.5} />
+          </g>
+        ))}
         {stations.map(({ station, x, y }) => (
           <circle key={`${station.band} ${station.callsign}`} className="heard-station" cx={x} cy={y} r={4} />
         ))}
@@ -298,6 +327,19 @@ export function WorldMap(props: Props) {
                 last heard {clockBoth(hover.station.lastHeardUtc)}
               </div>
             </>
+          )}
+          {hover.hearing && (
+            <div className={hover.station ? "tooltip-more" : undefined}>
+              <div>
+                <strong>{hover.hearing.callsign}</strong> {hover.hearing.grid}, {hover.hearing.band}, hears your area
+              </div>
+              <div>
+                {hover.hearing.reported
+                  .map((r) => (r.distanceKm === 0 ? `you ${signedDb(r.reportDb)}` : `${r.callsign} ${signedDb(r.reportDb)}`))
+                  .join(", ")}
+              </div>
+              <div className="tooltip-title">last report {clockBoth(hover.hearing.lastUtc)}</div>
+            </div>
           )}
           {hover.cell && coverage && (
             <>

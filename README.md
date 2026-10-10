@@ -19,11 +19,11 @@ All ten phases of the [roadmap](docs/engineering-assessment.md#18-implementation
 | Tab | What you get |
 |---|---|
 | **Best bands** | For a path and an hour: each band's predicted reliability and SNR, the hours it is worth trying, and the effect of transmit power. Short or long path. |
-| **Compare** | Prediction beside what your own receiver heard toward the destination in the last hour, and a plain recommendation per band (HIGH PRIORITY, TRY, INVESTIGATE, …). |
+| **Compare** | Prediction beside what your own receiver heard toward the destination in the last hour, and a plain recommendation per band (HIGH PRIORITY, TRY, INVESTIGATE, …). Beside it, the other direction: stations that way heard sending signal reports to you or to stations near you. |
 | **Field** | One simplified screen: the three bands to try, their good hours, conditions, how old every piece of data is, and the map. Everything from data on the computer. |
 | **Through the day** | Usable frequency range hour by hour, and an hour-by-band table. |
 | **Map** | Pick either end of the path on a zoomable world map, with day and night, a coverage overlay showing where a band reaches, and the stations heard. |
-| **Heard** | What WSJT-X is decoding right now, per-band activity, a check of the computer's clock, and the `ALL.TXT` logs of any number of WSJT-X installations, read in place. |
+| **Heard** | What WSJT-X is decoding right now, per-band activity, who hears your area (from the signal reports distant stations send to you and your neighbours), a check of the computer's clock, and the `ALL.TXT` logs of any number of WSJT-X installations, read in place. |
 | **Plan** | A listening plan: which bands to listen on, in what order and for how long, from the prediction, what was heard in the last hour and how long each band has gone unsampled. Follow it by hand, tick its bands in WSJT-X's band hopping, or let the app move the radio. |
 | **Radio** | Reads the radio through a `rigctld` shared with WSJT-X: frequency, mode, PTT, split and VFO, and whether WSJT-X sees the same dial. The app can start `rigctld` and WSJT-X itself, in the right order. |
 | **History** | Checks the predictions against every decode you have stored: were places heard more often where the model said they would be? |

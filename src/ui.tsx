@@ -118,6 +118,14 @@ export function Evidence({ tier }: { tier: BandComparison["observed"] }) {
   );
 }
 
+/** The mark for a station heard reporting this one's area: an amber ring. */
+export function Ring() {
+  return <span className="swatch ring" aria-hidden="true" />;
+}
+
+/** A dB figure with a true minus sign. */
+export const signedDb = (value: number) => `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value)} dB`;
+
 export type Health = "ok" | "warn" | "alert" | "off" | "busy";
 
 export function Dot({ state }: { state: Health }) {
