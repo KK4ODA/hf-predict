@@ -350,6 +350,10 @@ We adopt the same model. WSJT-X decodes. Our app listens, stores, analyses, maps
 - The interface has **no transmit function at all**. It can read frequency, mode, PTT, split and VFO, and set frequency.
 - The app can start `rigctld` itself, or attach to one already running.
 
+### Phase 8 results (2026-10-10)
+
+The `RadioController` trait and its `rigctld` backend shipped read-only: `read()` returns frequency, mode, passband, PTT, split and VFO, and there is no method that can key the transmitter or, in this phase, set anything. The client uses the extended response protocol (`+\get_freq` and so on), so every reply ends in `RPRT n` and can be framed and checked; Hamlib error codes are named. A monitor thread reads at a configured rate, reconnects after a failure, and shows its state on the Radio tab beside WSJT-X's reported dial frequency, so a shared CAT path that disagrees is visible. Checked against a stand-in `rigctld` over TCP in the tests, which also records every command the client sends and asserts that all are reads; the FTDX10 through `rigctld-wsjtx` is still to be tried by the operator.
+
 ---
 
 ## 10. WSJT-X and CAT coordination

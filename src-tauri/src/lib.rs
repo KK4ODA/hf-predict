@@ -7,6 +7,7 @@ pub mod jsonfile;
 pub mod observations;
 pub mod predictor;
 pub mod propagation;
+pub mod radio;
 pub mod scan;
 pub mod solar;
 pub mod spacewx;
@@ -304,6 +305,8 @@ struct AppState {
     listener: Mutex<Option<Listener>>,
     /// What the last check of the configured logs found.
     log_checks: Mutex<Vec<LogCheck>>,
+    radio_config: Mutex<radio::RadioConfig>,
+    radio: Mutex<Option<radio::Monitor>>,
 }
 
 impl AppState {
@@ -429,15 +432,59 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
     let config: ListenerConfig = local_data_file(app, LISTENER_FILE)
         .and_then(|file| jsonfile::load(&file))
         .unwrap_or_default();
+    let radio_config: radio::RadioConfig = local_data_file(app, RADIO_FILE)
+        .and_then(|file| jsonfile::load(&file))
+        .unwrap_or_default();
     let state = AppState {
         db,
         listener_config: Mutex::new(config.clone()),
         listener: Mutex::new(None),
         log_checks: Mutex::new(Vec::new()),
+        radio_config: Mutex::new(radio_config.clone()),
+        radio: Mutex::new(None),
     };
     // A database that will not open is reported when the screen asks for data.
     let _ = state.apply(config);
+    state.apply_radio(radio_config);
     state
+}
+
+const RADIO_FILE: &str = "radio.json";
+
+impl AppState {
+    fn radio_status(&self) -> radio::RadioStatus {
+        let config = self.radio_config.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        match self.radio.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+            Some(monitor) => monitor.status(),
+            None => radio::RadioStatus::off(config),
+        }
+    }
+
+    /// Stops any radio monitor and starts one for `config` if it is enabled.
+    fn apply_radio(&self, config: radio::RadioConfig) {
+        let mut monitor = self.radio.lock().unwrap_or_else(PoisonError::into_inner);
+        *monitor = None;
+        if config.enabled {
+            *monitor = Some(radio::Monitor::start(config.clone()));
+        }
+        *self.radio_config.lock().unwrap_or_else(PoisonError::into_inner) = config;
+    }
+}
+
+#[tauri::command]
+fn radio_status(state: tauri::State<AppState>) -> radio::RadioStatus {
+    state.radio_status()
+}
+
+#[tauri::command]
+fn set_radio_config(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+    config: radio::RadioConfig,
+) -> Result<radio::RadioStatus, String> {
+    jsonfile::save(&local_data_file(&app, RADIO_FILE)?, &config)?;
+    state.apply_radio(config);
+    Ok(state.radio_status())
 }
 
 /// Uses a sunspot table downloaded in an earlier session, if it is newer
@@ -472,6 +519,8 @@ pub fn run() {
             refresh_conditions,
             calibration_report,
             listen_plan,
+            radio_status,
+            set_radio_config,
             import_conditions,
             winlink_request,
             listener_status,
