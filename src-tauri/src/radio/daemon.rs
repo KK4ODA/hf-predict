@@ -8,9 +8,10 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::RadioConfig;
 
@@ -38,17 +39,88 @@ pub struct DaemonStatus {
     pub output: String,
 }
 
-/// A `rigctld` this app started. Dropping it stops the daemon.
+enum Process {
+    Child(Child),
+    /// Started by an earlier session of this app and left running.
+    Adopted(u32),
+}
+
+/// What is written down about a running daemon, so a later session can
+/// find it again.
+#[derive(Serialize, Deserialize)]
+struct Record {
+    pid: u32,
+    command: String,
+}
+
+/// A `rigctld` this app started. Dropping it stops the daemon, unless the
+/// operator chose to leave it running.
 pub struct Daemon {
-    child: Child,
+    process: Process,
     command: String,
     output: Arc<Mutex<VecDeque<String>>>,
+    record: Option<PathBuf>,
+    keep: Arc<AtomicBool>,
+}
+
+/// The name of a running process, or None when there is no such process.
+fn process_name(pid: u32) -> Option<String> {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("tasklist");
+        cmd.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
+        quiet(&mut cmd);
+        let out = cmd.output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let first = text.lines().next()?.trim();
+        // "rigctld.exe","18024",... ; anything else means no such process.
+        first.strip_prefix('"').and_then(|rest| rest.split('"').next()).map(String::from)
+    }
+    #[cfg(not(windows))]
+    {
+        let out = Command::new("ps").args(["-p", &pid.to_string(), "-o", "comm="]).output().ok()?;
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!name.is_empty()).then_some(name)
+    }
+}
+
+fn is_rigctld(pid: u32) -> bool {
+    process_name(pid).is_some_and(|name| name.to_lowercase().contains("rigctld"))
+}
+
+/// Stops a process by id, but only if it is still a rigctld: an id can be
+/// reused once its process has gone.
+fn stop_pid(pid: u32) {
+    if !is_rigctld(pid) {
+        return;
+    }
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut cmd = Command::new("taskkill");
+        cmd.args(["/PID", &pid.to_string(), "/F"]);
+        cmd
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut cmd = Command::new("kill");
+        cmd.arg(pid.to_string());
+        cmd
+    };
+    quiet(&mut cmd);
+    let _ = cmd.stdout(Stdio::null()).stderr(Stdio::null()).status();
 }
 
 impl Daemon {
     /// Starts `rigctld` for the configured radio, listening where the app
     /// will connect.
     pub fn start(config: &RadioConfig) -> Result<Self, String> {
+        Self::start_recorded(config, None, Arc::new(AtomicBool::new(false)))
+    }
+
+    /// As `start`, writing the daemon's process id to `record` so a later
+    /// session can take it back, and leaving it running if `keep` is set by
+    /// the time it is dropped.
+    pub fn start_recorded(config: &RadioConfig, record: Option<&Path>, keep: Arc<AtomicBool>) -> Result<Self, String> {
         let program = config.rigctld_path.trim();
         if program.is_empty() {
             return Err("no rigctld program chosen".into());
@@ -62,7 +134,44 @@ impl Daemon {
             args.extend(["-r".to_string(), serial_port.to_string(), "-s".to_string(), config.baud.to_string()]);
         }
         args.extend(["-T".to_string(), config.host.clone(), "-t".to_string(), config.port.to_string()]);
-        Self::spawn(program, &args)
+        let mut daemon = Self::spawn(program, &args)?;
+        daemon.keep = keep;
+        if let Some(path) = record {
+            let written = Record { pid: daemon.pid(), command: daemon.command.clone() };
+            if let Ok(text) = serde_json::to_string(&written) {
+                let _ = std::fs::write(path, text);
+                daemon.record = Some(path.to_path_buf());
+            }
+        }
+        Ok(daemon)
+    }
+
+    /// The daemon an earlier session left running, if `record` names a
+    /// rigctld that is still alive. A stale record is removed.
+    pub fn adopt(record: &Path, keep: Arc<AtomicBool>) -> Option<Self> {
+        let text = std::fs::read_to_string(record).ok()?;
+        let Ok(found) = serde_json::from_str::<Record>(&text) else {
+            let _ = std::fs::remove_file(record);
+            return None;
+        };
+        if !is_rigctld(found.pid) {
+            let _ = std::fs::remove_file(record);
+            return None;
+        }
+        Some(Self {
+            process: Process::Adopted(found.pid),
+            command: found.command,
+            output: Arc::new(Mutex::new(VecDeque::from(["Left running by an earlier session; taken back.".to_string()]))),
+            record: Some(record.to_path_buf()),
+            keep,
+        })
+    }
+
+    pub fn pid(&self) -> u32 {
+        match &self.process {
+            Process::Child(child) => child.id(),
+            Process::Adopted(pid) => *pid,
+        }
     }
 
     pub fn spawn(program: &str, args: &[String]) -> Result<Self, String> {
@@ -88,14 +197,25 @@ impl Daemon {
             });
         }
         let command = std::iter::once(program.to_string()).chain(args.iter().cloned()).collect::<Vec<_>>().join(" ");
-        Ok(Self { child, command, output })
+        Ok(Self {
+            process: Process::Child(child),
+            command,
+            output,
+            record: None,
+            keep: Arc::new(AtomicBool::new(false)),
+        })
     }
 
     pub fn status(&mut self) -> DaemonStatus {
-        let exit_code = self.child.try_wait().ok().flatten().map(|s| s.code().unwrap_or(-1));
+        // An adopted daemon is taken to be running while it answers; the
+        // monitor notices when it stops.
+        let exit_code = match &mut self.process {
+            Process::Child(child) => child.try_wait().ok().flatten().map(|s| s.code().unwrap_or(-1)),
+            Process::Adopted(_) => None,
+        };
         DaemonStatus {
             command: self.command.clone(),
-            pid: self.child.id(),
+            pid: self.pid(),
             running: exit_code.is_none(),
             exit_code,
             output: self.output.lock().unwrap_or_else(PoisonError::into_inner).iter().cloned().collect::<Vec<_>>().join("\n"),
@@ -105,8 +225,19 @@ impl Daemon {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if self.keep.load(Ordering::Relaxed) {
+            return;
+        }
+        match &mut self.process {
+            Process::Child(child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            Process::Adopted(pid) => stop_pid(*pid),
+        }
+        if let Some(record) = &self.record {
+            let _ = std::fs::remove_file(record);
+        }
     }
 }
 
@@ -320,6 +451,33 @@ mod tests {
         let pid = running.status().pid;
         drop(running);
         assert!(pid > 0);
+    }
+
+    #[test]
+    fn a_kept_daemon_survives_and_a_record_without_rigctld_is_dropped() {
+        #[cfg(windows)]
+        let (shell, flag, stay) = ("cmd", "/c", "ping -n 30 127.0.0.1 > nul");
+        #[cfg(not(windows))]
+        let (shell, flag, stay) = ("sh", "-c", "sleep 30");
+        let mut kept = Daemon::spawn(shell, &[flag.to_string(), stay.to_string()]).unwrap();
+        kept.keep.store(true, Ordering::Relaxed);
+        let pid = kept.pid();
+        let mut handle = match std::mem::replace(&mut kept.process, Process::Adopted(pid)) {
+            Process::Child(child) => child,
+            Process::Adopted(_) => unreachable!(),
+        };
+        drop(kept);
+        assert!(handle.try_wait().unwrap().is_none(), "a kept daemon must still be running");
+        let _ = handle.kill();
+        let _ = handle.wait();
+
+        // A record naming a process that is not rigctld is stale and removed.
+        let dir = std::env::temp_dir().join(format!("hfp-daemon-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let record = dir.join("rigctld.json");
+        std::fs::write(&record, format!("{{\"pid\":{},\"command\":\"x\"}}", std::process::id())).unwrap();
+        assert!(Daemon::adopt(&record, Arc::new(AtomicBool::new(false))).is_none());
+        assert!(!record.exists());
     }
 
     #[test]

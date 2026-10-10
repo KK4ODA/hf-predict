@@ -1,5 +1,5 @@
 import { localHour, stampBoth, Zone, zoneAt } from "./localtime";
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { age } from "./ui";
 import {
@@ -374,6 +374,7 @@ export function ConditionsPanel({ conditions, onUpdate, ssn }: Props) {
   const [results, setResults] = useState<Result[]>([]);
   const [request, setRequest] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const find = (kind: string) => conditions.products.find((p) => p.kind === kind);
   const wwvStatus = find("wwv");
@@ -430,10 +431,10 @@ export function ConditionsPanel({ conditions, onUpdate, ssn }: Props) {
         <button type="button" onClick={async () => setRequest(request === null ? await invoke<string>("winlink_request") : null)}>
           {request === null ? "Request over Winlink" : "Hide the Winlink request"}
         </button>
-        <label className="inline">
-          Import files
-          <input type="file" multiple onChange={importFiles} />
-        </label>
+        <button type="button" onClick={() => fileInput.current?.click()}>
+          Import files…
+        </button>
+        <input ref={fileInput} type="file" multiple hidden onChange={importFiles} />
       </div>
 
       {results.length > 0 && (
@@ -476,9 +477,9 @@ export function ConditionsPanel({ conditions, onUpdate, ssn }: Props) {
           state={productState(wwvStatus)}
         />
         <Reading
-          label={`K index${wwv?.kTime ? ` at ${wwv.kTime}` : ""}`}
+          label="K index"
           value={wwv?.kIndex ?? null}
-          scale={kWords(wwv?.kIndex ?? null)}
+          scale={`${kWords(wwv?.kIndex ?? null)}${wwv?.kTime ? `, ${wwv.kTime}` : ""}`}
           provenance={provenance(wwvStatus)}
           state={productState(wwvStatus)}
         />

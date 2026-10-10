@@ -117,7 +117,7 @@ export function BandLadder({ detail, hourIndex, onSelectHour, zone, nowClock, mo
   };
 
   return (
-    <section>
+    <section className="full">
       <div className="view-head">
         <h2>Through the day</h2>
         <span className="hint">

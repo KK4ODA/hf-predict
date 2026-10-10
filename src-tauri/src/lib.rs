@@ -386,6 +386,8 @@ struct AppState {
     radio_config: Mutex<radio::RadioConfig>,
     radio: Mutex<Option<Arc<radio::Monitor>>>,
     scan: Mutex<Option<scanner::Runner>>,
+    /// Where a started rigctld's process id is kept between sessions.
+    rigctld_record: Option<PathBuf>,
     /// What came of starting WSJT-X from this app, for the screen.
     wsjtx_launch: Mutex<Option<String>>,
 }
@@ -524,6 +526,7 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
         radio_config: Mutex::new(radio_config.clone()),
         radio: Mutex::new(None),
         scan: Mutex::new(None),
+        rigctld_record: local_data_file(app, RIGCTLD_RECORD_FILE).ok(),
         wsjtx_launch: Mutex::new(None),
     };
     // A database that will not open is reported when the screen asks for data.
@@ -533,6 +536,92 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
 }
 
 const RADIO_FILE: &str = "radio.json";
+const RIGCTLD_RECORD_FILE: &str = "rigctld.json";
+
+/// Set once the operator has chosen how to quit, so the exit that follows
+/// is not asked about again.
+static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stops any scan, which puts the radio back, and the radio monitor, which
+/// stops the rigctld it started unless `keep_rigctld`.
+fn shut_down(app: &tauri::AppHandle, keep_rigctld: bool) {
+    let state = app.state::<AppState>();
+    let scan = state.scan.lock().unwrap_or_else(PoisonError::into_inner).take();
+    drop(scan);
+    let monitor = state.radio.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(monitor) = monitor {
+        if keep_rigctld {
+            monitor.keep_daemon_running();
+        }
+        drop(monitor);
+    }
+}
+
+/// Handles a request to close the window or quit. Returns true when the
+/// operator is being asked first and the request must be held back.
+fn ask_before_quitting(app: &tauri::AppHandle) -> bool {
+    use std::sync::atomic::Ordering;
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
+
+    if QUITTING.load(Ordering::Relaxed) {
+        return false;
+    }
+    let state = app.state::<AppState>();
+    let daemon = state.radio_status().daemon.filter(|d| d.running);
+    let Some(daemon) = daemon else {
+        QUITTING.store(true, Ordering::Relaxed);
+        shut_down(app, false);
+        return false;
+    };
+
+    let config = state.radio_config.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    let wsjtx_running = state
+        .status()
+        .tracker
+        .as_ref()
+        .and_then(|t| t.decoders.first())
+        .is_some_and(|d| d.seconds_since_heard <= scanner::REPORTING_WITHIN_S);
+    let scanning = state
+        .scan
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .is_some_and(|r| matches!(r.status().state, "running" | "paused"));
+    let port = if config.serial_port.trim().is_empty() { "the radio's port".to_string() } else { config.serial_port.trim().to_string() };
+    let mut text = format!(
+        "HF Predict started rigctld (process {}) to share the radio. While it runs, no other program can open {port} directly.",
+        daemon.pid
+    );
+    if wsjtx_running {
+        text.push_str("\n\nWSJT-X is still running and reaches the radio through rigctld. Stopping rigctld cuts WSJT-X off from the radio.");
+    }
+    if scanning {
+        text.push_str("\n\nThe scan will stop and the radio go back to where it was.");
+    }
+    text.push_str("\n\nStop rigctld now?");
+
+    const STOP: &str = "Stop rigctld";
+    const LEAVE: &str = "Leave it running";
+    let handle = app.clone();
+    app.dialog()
+        .message(text)
+        .title("rigctld is still running")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::YesNoCancelCustom(STOP.into(), LEAVE.into(), "Cancel".into()))
+        .show_with_result(move |result| {
+            let keep = match result {
+                MessageDialogResult::Yes => false,
+                MessageDialogResult::No => true,
+                MessageDialogResult::Custom(label) if label == STOP => false,
+                MessageDialogResult::Custom(label) if label == LEAVE => true,
+                _ => return,
+            };
+            QUITTING.store(true, Ordering::Relaxed);
+            shut_down(&handle, keep);
+            handle.exit(0);
+        });
+    true
+}
 
 impl AppState {
     fn radio_status(&self) -> radio::RadioStatus {
@@ -550,7 +639,7 @@ impl AppState {
         let mut monitor = self.radio.lock().unwrap_or_else(PoisonError::into_inner);
         *monitor = None;
         if config.enabled {
-            *monitor = Some(Arc::new(radio::Monitor::start(config.clone())));
+            *monitor = Some(Arc::new(radio::Monitor::start_recorded(config.clone(), self.rigctld_record.clone())));
         }
         *self.radio_config.lock().unwrap_or_else(PoisonError::into_inner) = config;
     }
@@ -707,8 +796,21 @@ pub fn run() {
             load_user_data,
             save_user_data
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::CloseRequested { api, .. }, .. } => {
+                if ask_before_quitting(app) {
+                    api.prevent_close();
+                }
+            }
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if ask_before_quitting(app) {
+                    api.prevent_exit();
+                }
+            }
+            _ => {}
+        });
 }
 
 /// Helpers for tests that run the real engine built by `engines/voacapl/build.sh`.

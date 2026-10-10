@@ -65,7 +65,7 @@ export function StatusBar(props: Props) {
     <header className="statusbar">
       <div className="sb-brand">
         <strong>HF Predict</strong>
-        <span className="version">{version}</span>
+        <span className="version sb-opt2">{version}</span>
       </div>
 
       <button type="button" className="sb-cell grow" onClick={onEditPath} title="Change the path">
@@ -74,9 +74,9 @@ export function StatusBar(props: Props) {
             <span className="sb-value">
               {detail.prediction.txLocator} → {detail.prediction.rxLocator}
             </span>
-            <span className="sb-sub">{detail.prediction.distanceKm.toFixed(0)} km</span>
-            <span className="sb-sub">{detail.prediction.txBearingDeg.toFixed(0)}°</span>
-            <span className="sb-label">{longPath ? "long path" : "short path"}</span>
+            <span className="sb-sub sb-opt1">{detail.prediction.distanceKm.toFixed(0)} km</span>
+            <span className="sb-sub sb-opt1">{detail.prediction.txBearingDeg.toFixed(0)}°</span>
+            <span className="sb-label sb-opt2">{longPath ? "long path" : "short path"}</span>
           </>
         ) : (
           <span className="sb-label">No path predicted yet</span>
@@ -86,8 +86,8 @@ export function StatusBar(props: Props) {
       <div className="sb-cell static" title="Current time">
         <span className="sb-value">{utc}</span>
         <span className="sb-label">UTC</span>
-        <span className="sb-sub">{localClock(nowS, false)}</span>
-        <span className="sb-label">{zone.name}</span>
+        <span className="sb-sub sb-opt3">{localClock(nowS, false)}</span>
+        <span className="sb-label sb-opt3">{zone.name}</span>
       </div>
 
       <button
@@ -105,7 +105,7 @@ export function StatusBar(props: Props) {
             <span className="sb-label">K</span>
             <span className="sb-value">{sun.kIndex ?? "?"}</span>
             {wwv?.ageSeconds != null && (
-              <span className={wwv.stale ? "sb-label caution" : "sb-label"}>{age(wwv.ageSeconds)} old</span>
+              <span className={wwv.stale ? "sb-label caution" : "sb-label sb-opt1"}>{age(wwv.ageSeconds)} old</span>
             )}
           </>
         ) : (
@@ -117,14 +117,14 @@ export function StatusBar(props: Props) {
         <Dot state={rx.state} />
         <span className="sb-label">Receiver</span>
         <span className="sb-value small">{rx.value}</span>
-        {rx.sub && <span className="sb-sub">{rx.sub}</span>}
+        {rx.sub && <span className="sb-sub sb-opt1">{rx.sub}</span>}
       </button>
 
       <button type="button" className="sb-cell" onClick={() => onNavigate(rig.sub.startsWith("scan") ? "plan" : "radio")} title="Radio through rigctld">
         <Dot state={rig.state} />
         <span className="sb-label">Radio</span>
         <span className="sb-value small">{rig.value}</span>
-        {rig.sub && <span className="sb-sub">{rig.sub}</span>}
+        {rig.sub && <span className="sb-sub sb-opt1">{rig.sub}</span>}
       </button>
 
       {clockOff && clock && (

@@ -174,7 +174,7 @@ function BestNow({ detail, nowClock, onOpen }: { detail: PathDetail; nowClock: n
             {verdictIcon(best.verdict.priority)}
           </span>
           <span className="sb-value">{best.band}</span>
-          <span className="sb-sub">{best.verdict.label.toLowerCase()}</span>
+          <span className="sb-sub sb-opt1">{best.verdict.label.toLowerCase()}</span>
         </>
       ) : (
         <span className="sb-value small">…</span>
@@ -407,7 +407,7 @@ function App() {
               predict();
             }}
           >
-            <label className="loc">
+            <label className="loc pb-from">
               From
               <input
                 ref={fromRef}
@@ -431,7 +431,7 @@ function App() {
             >
               ⇄
             </button>
-            <label className="loc">
+            <label className="loc pb-to">
               To
               <input
                 name="to"
@@ -470,7 +470,8 @@ function App() {
                 </button>
               </div>
             </div>
-            <div className="pf">
+            <span className="pb-break" aria-hidden="true" />
+            <div className="pf pb-hour">
               <span>Hour shown</span>
               <div className="hourstep">
                 <button type="button" aria-label="Previous hour" title="Previous hour ( [ )" onClick={() => setClockHour((clockHour + 23) % 24)}>
@@ -496,18 +497,17 @@ function App() {
               </div>
             </div>
             <div className="actions">
-              {changed && <span className="changed">Settings changed since the last prediction</span>}
               {run.kind === "failed" && <span className="error">Prediction failed</span>}
               <button type="button" className="quiet" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
                 {moreOpen ? "Fewer settings" : "More settings"}
               </button>
               <button
-                className="primary"
+                className={changed ? "primary stale" : "primary"}
                 type="submit"
                 disabled={run.kind === "running" || !txPosition.trim() || !rxPosition.trim()}
-                title="Ctrl+Enter"
+                title={changed ? "Settings changed since the last prediction (Ctrl+Enter)" : "Ctrl+Enter"}
               >
-                {run.kind === "running" ? "Predicting…" : "Predict"}
+                {run.kind === "running" ? "Predicting…" : changed ? "Update" : "Predict"}
               </button>
             </div>
             {moreOpen && (

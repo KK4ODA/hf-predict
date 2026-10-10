@@ -204,19 +204,23 @@ export function PlanPanel(props: Props) {
         </button>
       </div>
       <div className="controls">
-        <span className="hint">Leave out:</span>
-        {BANDS.map((band) => (
-          <label key={band} className="inline">
-            <input
-              type="checkbox"
-              checked={excluded.includes(band)}
-              onChange={(e) =>
-                setExcluded(e.target.checked ? [...excluded, band] : excluded.filter((b) => b !== band))
-              }
-            />
-            {band}
-          </label>
-        ))}
+        <span className="hint">Bands</span>
+        <div className="chips" role="group" aria-label="Bands to include in the plan">
+          {BANDS.map((band) => {
+            const included = !excluded.includes(band);
+            return (
+              <button
+                key={band}
+                type="button"
+                aria-pressed={included}
+                title={included ? `Leave ${band} out` : `Put ${band} back in`}
+                onClick={() => setExcluded(included ? [...excluded, band] : excluded.filter((b) => b !== band))}
+              >
+                {band}
+              </button>
+            );
+          })}
+        </div>
       </div>
       {error && <p className="error">{error}</p>}
       {txPosition.trim() === "" && <p className="note">Enter your position in the From field first.</p>}
