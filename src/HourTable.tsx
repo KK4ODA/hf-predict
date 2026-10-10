@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FrequencyPrediction, PathPrediction } from "./types";
 import { clockHour, hourLabel, shade } from "./tiers";
+import { localHour, Zone } from "./localtime";
 
 type Metric = {
   key: string;
@@ -40,10 +41,11 @@ type Props = {
   result: PathPrediction;
   hourIndex: number;
   onSelectHour: (hourIndex: number) => void;
+  zone: Zone;
 };
 
 /** Every hour against every band. Clicking a row selects that hour. */
-export function HourTable({ result, hourIndex, onSelectHour }: Props) {
+export function HourTable({ result, hourIndex, onSelectHour, zone }: Props) {
   const [metricKey, setMetricKey] = useState("rel");
   const metric = METRICS.find((m) => m.key === metricKey) ?? METRICS[0];
   const hours = result.run.prediction.hours
@@ -67,6 +69,7 @@ export function HourTable({ result, hourIndex, onSelectHour }: Props) {
         <thead>
           <tr>
             <th>UTC</th>
+            <th>{zone.name}</th>
             <th>MUF</th>
             {result.bands.map((band) => (
               <th key={band.name}>{band.name}</th>
@@ -81,6 +84,7 @@ export function HourTable({ result, hourIndex, onSelectHour }: Props) {
               onClick={() => onSelectHour(index)}
             >
               <th>{hourLabel(hour.utcHour)}</th>
+              <th>{localHour(clockHour(hour.utcHour), zone)}</th>
               <td>{hour.mufMhz.toFixed(1)}</td>
               {hour.frequencies.map((f) => (
                 <td

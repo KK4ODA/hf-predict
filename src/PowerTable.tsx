@@ -1,14 +1,15 @@
 import { PathDetail } from "./types";
-import { hourLabel, shade } from "./tiers";
+import { clockHour, shade } from "./tiers";
+import { hourBoth, Zone } from "./localtime";
 
 /** Reliability on each band at each transmit power, for one hour. */
-export function PowerTable({ detail, hourIndex }: { detail: PathDetail; hourIndex: number }) {
+export function PowerTable({ detail, hourIndex, zone }: { detail: PathDetail; hourIndex: number; zone: Zone }) {
   const prediction = detail.prediction;
   const hour = prediction.run.prediction.hours[hourIndex];
 
   return (
     <section>
-      <h3>Effect of transmit power at {hourLabel(hour.utcHour)} UTC</h3>
+      <h3>Effect of transmit power at {hourBoth(clockHour(hour.utcHour), zone)}</h3>
       <table className="results">
         <thead>
           <tr>

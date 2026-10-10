@@ -1,3 +1,4 @@
+import { localClock } from "./localtime";
 import { ChangeEvent, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -305,6 +306,7 @@ export function HeardPanel() {
             <thead>
               <tr>
                 <th>UTC</th>
+                <th>Local</th>
                 <th>Band</th>
                 <th>SNR</th>
                 <th>DT</th>
@@ -318,6 +320,7 @@ export function HeardPanel() {
               {recent.map((o, i) => (
                 <tr key={i} className={o.settling ? "muted" : undefined}>
                   <th>{clock(o.timeUtc)}</th>
+                  <th>{localClock(o.timeUtc)}</th>
                   <td>{o.band}</td>
                   <td>{o.snrDb}</td>
                   <td>{o.dtS.toFixed(1)}</td>

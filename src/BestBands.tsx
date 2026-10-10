@@ -1,5 +1,6 @@
 import { PathDetail } from "./types";
-import { clockHour, hourLabel, openWindows, tierOf, TIER_LEGEND } from "./tiers";
+import { clockHour, describeWindows, tierOf, TIER_LEGEND } from "./tiers";
+import { hourBoth, Zone } from "./localtime";
 
 type Props = {
   detail: PathDetail;
@@ -7,13 +8,14 @@ type Props = {
   other: PathDetail;
   otherName: string;
   hourIndex: number;
+  zone: Zone;
 };
 
 /** How much better the other path must be before it is worth mentioning. */
 const OTHER_PATH_MARGIN = 0.1;
 
 /** Bands ranked for one hour, best first, with the hours each is worth trying. */
-export function BestBands({ detail, other, otherName, hourIndex }: Props) {
+export function BestBands({ detail, other, otherName, hourIndex, zone }: Props) {
   const prediction = detail.prediction.run.prediction;
   const hour = prediction.hours[hourIndex];
   const otherHour = other.prediction.run.prediction.hours[hourIndex];
@@ -26,14 +28,14 @@ export function BestBands({ detail, other, otherName, hourIndex }: Props) {
         band,
         f: hour.frequencies[i],
         otherReliability: otherHour.frequencies[i].reliability,
-        windows: openWindows(byClockHour),
+        windows: describeWindows(byClockHour, zone),
       };
     })
     .sort((a, b) => b.f.reliability - a.f.reliability || b.f.snrDb - a.f.snrDb);
 
   return (
     <section>
-      <h3>Best bands at {hourLabel(hour.utcHour)} UTC</h3>
+      <h3>Best bands at {hourBoth(clockHour(hour.utcHour), zone)}</h3>
       <table className="bands">
         <thead>
           <tr>
@@ -42,7 +44,7 @@ export function BestBands({ detail, other, otherName, hourIndex }: Props) {
             <th>Reliability</th>
             <th>SNR</th>
             <th>Mode, angle</th>
-            <th>Worth trying (UTC)</th>
+            <th>Worth trying</th>
           </tr>
         </thead>
         <tbody>
@@ -63,7 +65,7 @@ export function BestBands({ detail, other, otherName, hourIndex }: Props) {
                   {f.mode}, {f.takeoffAngleDeg.toFixed(0)}°
                 </td>
                 <td className="left">
-                  {windows.length > 0 ? windows.join(", ") : "—"}
+                  {windows ?? "—"}
                   {otherReliability - f.reliability >= OTHER_PATH_MARGIN && (
                     <span className="hint">
                       {" "}

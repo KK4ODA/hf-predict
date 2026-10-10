@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Band, FrequencyWindow } from "./types";
 import { clockHour, hourLabel } from "./tiers";
+import { hourBoth, localHour, Zone } from "./localtime";
 
 type Props = {
   window: FrequencyWindow[];
   bands: Band[];
   /** Index into `window` of the hour the rest of the screen is showing. */
   hourIndex: number;
+  zone: Zone;
 };
 
 type Series = {
@@ -23,14 +25,14 @@ const SERIES: Series[] = [
 ];
 
 const WIDTH = 760;
-const HEIGHT = 300;
-const MARGIN = { top: 22, right: 52, bottom: 30, left: 40 };
+const HEIGHT = 314;
+const MARGIN = { top: 22, right: 52, bottom: 44, left: 40 };
 const PLOT_W = WIDTH - MARGIN.left - MARGIN.right;
 const PLOT_H = HEIGHT - MARGIN.top - MARGIN.bottom;
 const MHZ_TICKS = [5, 10, 15, 20, 25, 30];
 
 /** MUF, optimum working frequency and lowest usable frequency through the day. */
-export function FrequencyChart({ window, bands, hourIndex }: Props) {
+export function FrequencyChart({ window, bands, hourIndex, zone }: Props) {
   const [hover, setHover] = useState<number | null>(null);
   const hours = [...window].sort((a, b) => clockHour(a.utcHour) - clockHour(b.utcHour));
   const top = Math.max(32, ...hours.map((w) => w.mufMhz));
@@ -95,13 +97,21 @@ export function FrequencyChart({ window, bands, hourIndex }: Props) {
           {hours.map(
             (w, i) =>
               i % 3 === 0 && (
-                <text key={w.utcHour} className="tick" x={x(i)} y={HEIGHT - 10} textAnchor="middle">
-                  {hourLabel(w.utcHour)}
-                </text>
+                <g key={w.utcHour}>
+                  <text className="tick" x={x(i)} y={HEIGHT - 24} textAnchor="middle">
+                    {hourLabel(w.utcHour)}
+                  </text>
+                  <text className="tick" x={x(i)} y={HEIGHT - 8} textAnchor="middle">
+                    {localHour(clockHour(w.utcHour), zone)}
+                  </text>
+                </g>
               ),
           )}
-          <text className="tick" x={MARGIN.left + PLOT_W} y={HEIGHT - 10} textAnchor="end" dx={44}>
+          <text className="tick" x={MARGIN.left + PLOT_W} y={HEIGHT - 24} textAnchor="end" dx={48}>
             UTC
+          </text>
+          <text className="tick" x={MARGIN.left + PLOT_W} y={HEIGHT - 8} textAnchor="end" dx={48}>
+            {zone.name}
           </text>
 
           <line className="selected-hour" x1={x(selectedClock)} x2={x(selectedClock)} y1={MARGIN.top} y2={y(0)} />
@@ -142,7 +152,7 @@ export function FrequencyChart({ window, bands, hourIndex }: Props) {
               transform: hover > 15 ? "translateX(calc(-100% - 12px))" : "translateX(12px)",
             }}
           >
-            <div className="tooltip-title">{hourLabel(shown.utcHour)} UTC</div>
+            <div className="tooltip-title">{hourBoth(clockHour(shown.utcHour), zone)}</div>
             {SERIES.map((s) => {
               const value = s.value(shown);
               return (
@@ -167,6 +177,7 @@ export function FrequencyChart({ window, bands, hourIndex }: Props) {
           <thead>
             <tr>
               <th>UTC</th>
+              <th>{zone.name}</th>
               {SERIES.map((s) => (
                 <th key={s.key}>{s.label} (MHz)</th>
               ))}
@@ -176,6 +187,7 @@ export function FrequencyChart({ window, bands, hourIndex }: Props) {
             {hours.map((w) => (
               <tr key={w.utcHour}>
                 <th>{hourLabel(w.utcHour)}</th>
+                <th>{localHour(clockHour(w.utcHour), zone)}</th>
                 {SERIES.map((s) => (
                   <td key={s.key}>{s.value(w)?.toFixed(1) ?? "—"}</td>
                 ))}

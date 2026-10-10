@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { modeCaution, OBSERVED, useComparison, verdictIcon } from "./comparison";
 import { WorldMap } from "./WorldMap";
 import { Conditions, Observation, PathDetail } from "./types";
-import { clockHour, hourLabel, openWindows } from "./tiers";
+import { clockHour, describeWindows } from "./tiers";
+import { hourBoth, Zone } from "./localtime";
 
 const EVIDENCE_MINUTES = 60;
 const TOP_BANDS = 3;
@@ -41,11 +42,12 @@ type Props = {
   modeLabel: string;
   longPath: boolean;
   month: number;
+  zone: Zone;
   conditions: Conditions | null;
 };
 
 /** One simplified screen for working a path: what to try, when, and how fresh the data is. */
-export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, conditions }: Props) {
+export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, zone, conditions }: Props) {
   const [rows, error] = useComparison(detail, hourIndex, EVIDENCE_MINUTES);
   const last = useLastDecode();
   const prediction = detail.prediction;
@@ -60,7 +62,7 @@ export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, cond
     const index = prediction.bands.findIndex((b) => b.name === band);
     const byClockHour = new Array<number>(24).fill(0);
     for (const h of hours) byClockHour[clockHour(h.utcHour)] = h.frequencies[index].reliability;
-    return openWindows(byClockHour);
+    return describeWindows(byClockHour, zone);
   };
   const wwv = conditions?.products.find((p) => p.kind === "wwv");
   const alert = wwv?.stored?.product.kind === "wwv" ? wwv.stored.product : null;
@@ -70,7 +72,7 @@ export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, cond
       {error && <p className="error">{error}</p>}
       <p className="field-path">
         {prediction.txLocator} → {prediction.rxLocator} · {prediction.distanceKm.toFixed(0)} km ·{" "}
-        {longPath ? "long path" : "short path"} · {modeLabel} · {hourLabel(hour.utcHour)} UTC
+        {longPath ? "long path" : "short path"} · {modeLabel} · {hourBoth(clockHour(hour.utcHour), zone)}
       </p>
 
       <div className="field-bands">
@@ -98,8 +100,8 @@ export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, cond
                   {OBSERVED[row.observed]}
                   {row.evidenceStations > 0 && `, ${row.evidenceStations} stations`}
                 </dd>
-                <dt>Good hours (UTC)</dt>
-                <dd>{windows.length > 0 ? windows.join(", ") : "none today"}</dd>
+                <dt>Good hours</dt>
+                <dd>{windows ?? "none today"}</dd>
               </dl>
             </article>
           );

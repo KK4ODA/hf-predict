@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { modeCaution, OBSERVED, useComparison, verdictIcon } from "./comparison";
 import { BandComparison, PathDetail } from "./types";
-import { hourLabel, shade } from "./tiers";
+import { clockHour, shade } from "./tiers";
+import { hourBoth, Zone } from "./localtime";
 
 const WINDOWS = [
   { minutes: 15, label: "15 minutes" },
@@ -34,10 +35,10 @@ const SORTS: { key: string; label: string; order: (a: BandComparison, b: BandCom
 
 const percent = (share: number) => `${(share * 100).toFixed(0)}%`;
 
-type Props = { detail: PathDetail; hourIndex: number; modeLabel: string };
+type Props = { detail: PathDetail; hourIndex: number; modeLabel: string; zone: Zone };
 
 /** Prediction for the path beside what has been heard toward the destination. */
-export function ComparePanel({ detail, hourIndex, modeLabel }: Props) {
+export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
   const [minutes, setMinutes] = useState(60);
   const [sortKey, setSortKey] = useState("combined");
   const [rows, error] = useComparison(detail, hourIndex, minutes);
@@ -70,7 +71,7 @@ export function ComparePanel({ detail, hourIndex, modeLabel }: Props) {
       </div>
       {error && <p className="error">{error}</p>}
 
-      <h3>Predicted and observed at {hourLabel(hour.utcHour)} UTC</h3>
+      <h3>Predicted and observed at {hourBoth(clockHour(hour.utcHour), zone)}</h3>
       <div className="scroll-x">
         <table className="results compact compare">
           <thead>
