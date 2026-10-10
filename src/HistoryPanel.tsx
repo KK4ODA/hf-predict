@@ -45,17 +45,15 @@ function Summary({ report, bins }: { report: CalibrationReport; bins: Calibratio
   const last = rateOf(bins[bins.length - 1]);
   return (
     <p>
-      {decodes.toLocaleString()} decodes with a locator, {percent(goodShare)} of them on paths
-      predicted at 70% or better.{" "}
+      {decodes.toLocaleString()} decodes checked. {percent(goodShare)} of them came from places the
+      model rated 70% or better.{" "}
       {first !== null && last !== null && (
         <>
-          A locator heard that month was heard in {percent(first)} of listening hours when the
-          prediction was under 10%, and in {percent(last)} when it was 90% or more.
+          When the model said under 10%, you heard those places in {percent(first)} of the hours
+          you were listening; when it said 90% or more, in {percent(last)}.
         </>
       )}{" "}
-      <span className="hint">
-        Receiver {report.receiver}; {report.circuits.toLocaleString()} paths and hours predicted.
-      </span>
+      <span className="hint">Receiver {report.receiver}.</span>
     </p>
   );
 }
@@ -106,11 +104,11 @@ export function HistoryPanel({ rxPosition, noiseDb }: Props) {
     <section>
       <div className="controls">
         <button type="button" onClick={run} disabled={progress !== null}>
-          {progress === null ? (report ? "Run again" : "Check predictions against decodes") : "Predicting…"}
+          {progress === null ? (report ? "Check again" : "Check predictions against what I heard") : "Predicting…"}
         </button>
         {progress !== null && progress.total > 0 && (
           <span className="hint">
-            {progress.done} of {progress.total} engine runs
+            {progress.done} of {progress.total} prediction runs
           </span>
         )}
         {report && (
@@ -131,28 +129,28 @@ export function HistoryPanel({ rxPosition, noiseDb }: Props) {
 
       {report === null && progress === null && (
         <p className="note">
-          Takes every stored decode with a locator, predicts that path for its hour and month, and
-          shows whether stations were heard more often where the model said they would be. The
-          first run over a long log takes a few minutes; later runs reuse its predictions.
+          Does the prediction match what you actually hear? This takes every decode you have
+          stored, asks the model what it would have predicted for that place at that time, and
+          compares. The first run over a long log takes a few minutes; later runs are quick.
         </p>
       )}
 
       {report && bins && report.decodesUsed === 0 && (
         <p className="note">
-          No stored decode carries a locator yet. Enable the listener on the Heard tab, or import
-          a WSJT-X ALL.TXT there.
+          Nothing to check yet: no stored decode has a locator. Turn on listening on the Heard
+          tab, or add a WSJT-X log there.
         </p>
       )}
 
       {report && bins && report.decodesUsed > 0 && (
         <>
-          <h3>Heard against predicted, {band === "all" ? "all bands" : band}</h3>
+          <h3>Prediction against what you heard, {band === "all" ? "all bands" : band}</h3>
           <Summary report={report} bins={bins} />
           <div className="chart">
             <svg
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
               role="img"
-              aria-label="Bar chart of the share of listening hours in which a heard locator was heard, by predicted reliability"
+              aria-label="Bar chart of how often places were heard, grouped by what the model predicted for them"
             >
               {PERCENT_TICKS.map((p) => (
                 <g key={p}>
@@ -169,7 +167,7 @@ export function HistoryPanel({ rxPosition, noiseDb }: Props) {
                 </g>
               ))}
               <text className="tick" x={MARGIN.left - 6} y={MARGIN.top - 10} textAnchor="end">
-                heard
+                how often heard
               </text>
               {bins.map((b, i) => {
                 const rate = rateOf(b);
@@ -198,7 +196,7 @@ export function HistoryPanel({ rxPosition, noiseDb }: Props) {
                 );
               })}
               <text className="tick" x={MARGIN.left + PLOT_W / 2} y={HEIGHT - 10} textAnchor="middle">
-                predicted reliability, % of days
+                what the model predicted
               </text>
             </svg>
             {shown && hover !== null && (
@@ -209,38 +207,38 @@ export function HistoryPanel({ rxPosition, noiseDb }: Props) {
                   transform: hover > 5 ? "translateX(calc(-100% - 12px))" : "translateX(12px)",
                 }}
               >
-                <div className="tooltip-title">Predicted {binLabel(hover, bins.length)}%</div>
+                <div className="tooltip-title">Model said {binLabel(hover, bins.length)}%</div>
                 <div>
                   <strong>{shown.decodes.toLocaleString()}</strong> decodes
                 </div>
                 <div>
                   heard in <strong>{shown.heard.toLocaleString()}</strong> of{" "}
-                  {shown.opportunities.toLocaleString()} listening hours
+                  {shown.opportunities.toLocaleString()} hours you listened
                   {rateOf(shown) !== null && ` (${percent(rateOf(shown)!)})`}
                 </div>
               </div>
             )}
           </div>
           <p className="note">
-            Each bar: of the hours this station was listening on the band, the share in which a
-            locator heard at some point that month was heard, grouped by what the model predicted
-            for that path at that hour. A station is heard only when it is also transmitting, so
-            the bars sit well below the predicted reliability; what matters is that they climb
-            from left to right. Stations are assumed to run 100 W into an isotropic antenna, with
-            your noise level at the receiving end. Hours with no decode at all from an imported
-            log are not counted as listening, which flattens the curve a little.
+            How to read it: the places you heard are grouped by what the model predicted for
+            them, from "almost never" on the left to "almost always" on the right. Each bar shows
+            how often you actually heard those places during the hours you were listening. If the
+            model is any good, the bars rise from left to right. They stay well below the
+            prediction because a station is only heard when someone there is transmitting. The
+            other station is assumed to run 100 W into a simple antenna; your own noise level is
+            used at this end.
           </p>
           <details>
             <summary>Show as table</summary>
             <table className="results compact">
               <thead>
                 <tr>
-                  <th>Predicted</th>
+                  <th>Model said</th>
                   <th>Decodes</th>
-                  <th>Share</th>
-                  <th>Listening hours</th>
-                  <th>Heard</th>
-                  <th>Rate</th>
+                  <th>Share of decodes</th>
+                  <th>Hours listened</th>
+                  <th>Hours heard</th>
+                  <th>How often</th>
                 </tr>
               </thead>
               <tbody>
@@ -262,8 +260,8 @@ export function HistoryPanel({ rxPosition, noiseDb }: Props) {
             </table>
           </details>
           <p className="hint">
-            {report.decodesSkipped.toLocaleString()} decodes skipped: no locator, a band outside
-            the model, or a month outside the sunspot table.
+            {report.decodesSkipped.toLocaleString()} decodes left out: no locator, a band the
+            model does not cover, or a month outside the sunspot table.
           </p>
         </>
       )}

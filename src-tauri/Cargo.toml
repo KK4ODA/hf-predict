@@ -1,6 +1,6 @@
 [package]
 name = "hf-predict"
-version = "0.7.4"
+version = "0.7.5"
 description = "Offline-first HF propagation prediction and measurement for amateur radio"
 authors = ["The hf-predict contributors"]
 license = "Apache-2.0"
@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = "2"

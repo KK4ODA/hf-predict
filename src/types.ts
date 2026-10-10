@@ -21,7 +21,7 @@ export type Options = {
 };
 
 export type SavedLocation = { name: string; position: string };
-export type UserData = { locations: SavedLocation[]; stations: StationProfile[] };
+export type UserData = { locations: SavedLocation[]; stations: StationProfile[]; logFiles: LogFile[] };
 
 export type PathRequest = {
   txPosition: string;
@@ -367,4 +367,19 @@ export type CalibrationReport = {
   decodesSkipped: number;
   overall: CalibrationBin[];
   byBand: Record<string, CalibrationBin[]>;
+};
+
+/** A WSJT-X ALL.TXT log to read, and where its receiver was. */
+export type LogFile = { path: string; rxPosition: string | null };
+
+export type FoundLog = { path: string; program: string; sizeBytes: number; modifiedUtc: number | null };
+
+export type LogCheck = {
+  path: string;
+  ok: boolean;
+  detail: string;
+  checkedUtc: number;
+  sizeBytes: number;
+  newBytes: number;
+  summary: ImportSummary | null;
 };

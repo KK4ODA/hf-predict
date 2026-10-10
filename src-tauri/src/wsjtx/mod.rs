@@ -6,5 +6,6 @@
 pub mod alltxt;
 pub mod ft8text;
 pub mod listener;
+pub mod logs;
 pub mod protocol;
 pub mod tracker;

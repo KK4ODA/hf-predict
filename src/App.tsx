@@ -56,7 +56,7 @@ const SSN_KIND = {
 function App() {
   const [version, setVersion] = useState("");
   const [options, setOptions] = useState<Options | null>(null);
-  const [userData, setUserData] = useState<UserData>({ locations: [], stations: [] });
+  const [userData, setUserData] = useState<UserData>({ locations: [], stations: [], logFiles: [] });
   const [conditions, setConditions] = useState<Conditions | null>(null);
   const [loadError, setLoadError] = useState("");
 
@@ -464,7 +464,13 @@ function App() {
             />
           )}
 
-          {tab === "heard" && <HeardPanel />}
+          {tab === "heard" && (
+            <HeardPanel
+              logFiles={userData.logFiles}
+              onLogFilesChange={(logFiles) => saveUserData({ ...userData, logFiles })}
+              defaultRxPosition={txPosition}
+            />
+          )}
 
           {tab === "history" && (
             <HistoryPanel rxPosition={txPosition} noiseDb={txStation?.noiseDb ?? null} />
