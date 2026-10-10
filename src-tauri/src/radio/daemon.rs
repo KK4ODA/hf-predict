@@ -329,3 +329,98 @@ mod tests {
         assert_eq!(Daemon::start(&config).map(|_| ()).unwrap_err(), "no rigctld program chosen");
     }
 }
+
+/// Where WSJT-X and its relatives are usually installed: stock WSJT-X,
+/// WS (WSJT-X improved), JTDX and Decodium.
+fn wsjtx_candidates() -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let versions = |root: &Path, program: &str| -> Vec<PathBuf> {
+        std::fs::read_dir(root)
+            .map(|entries| entries.flatten().map(|e| e.path().join("bin").join(program)).collect())
+            .unwrap_or_default()
+    };
+    #[cfg(windows)]
+    {
+        found.extend(versions(Path::new(r"C:\WS"), "ws.exe"));
+        found.extend(versions(Path::new(r"C:\WSJT"), "wsjtx.exe"));
+        found.extend(versions(Path::new(r"C:\JTDX"), "jtdx.exe"));
+        for root in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"].iter().filter_map(std::env::var_os) {
+            let root = PathBuf::from(root);
+            found.push(root.join("wsjtx").join("bin").join("wsjtx.exe"));
+            found.push(root.join("WSJT-X").join("bin").join("wsjtx.exe"));
+            found.extend(versions(&root.join("WS"), "ws.exe"));
+        }
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            found.push(PathBuf::from(local).join("Programs").join("Decodium").join("decodium.exe"));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        for dir in ["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"] {
+            for program in ["wsjtx", "ws", "jtdx"] {
+                found.push(PathBuf::from(dir).join(program));
+            }
+        }
+        found.push(PathBuf::from("/Applications/wsjtx.app/Contents/MacOS/wsjtx"));
+        found.push(PathBuf::from("/Applications/WS.app/Contents/MacOS/ws"));
+        found.push(PathBuf::from("/Applications/JTDX.app/Contents/MacOS/jtdx"));
+    }
+    found
+}
+
+/// The WSJT-X programs installed. `version` carries the folder they sit in,
+/// which is how the WS builds are versioned.
+pub fn find_wsjtx() -> Vec<FoundProgram> {
+    let mut seen = std::collections::BTreeSet::new();
+    wsjtx_candidates()
+        .into_iter()
+        .filter(|p| p.is_file())
+        .filter(|p| seen.insert(p.to_string_lossy().to_lowercase()))
+        .map(|p| FoundProgram {
+            version: {
+                // `WS/3.2.1/bin/ws.exe` is versioned by folder; `Decodium/decodium.exe` is not.
+                let parent = p.parent();
+                let in_bin = parent.and_then(Path::file_name).is_some_and(|n| n.eq_ignore_ascii_case("bin"));
+                let named = if in_bin { parent.and_then(Path::parent) } else { parent };
+                named.and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            },
+            path: p.to_string_lossy().into_owned(),
+        })
+        .collect()
+}
+
+/// Starts a program on its own, as the operator would from a shortcut: it
+/// is not watched and not stopped when this app closes.
+pub fn launch(program: &str) -> Result<u32, String> {
+    let path = Path::new(program.trim());
+    if program.trim().is_empty() {
+        return Err("no program chosen".into());
+    }
+    let mut cmd = Command::new(path);
+    if let Some(dir) = path.parent() {
+        cmd.current_dir(dir);
+    }
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let child = cmd.spawn().map_err(|e| format!("cannot start {program}: {e}"))?;
+    Ok(child.id())
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    /// Prints what this computer has: `cargo test --lib launch_tests::what_is_installed -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn what_is_installed() {
+        println!("rigctld: {:?}", find());
+        println!("wsjtx: {:?}", find_wsjtx());
+        println!("ports: {:?}", serial_ports());
+    }
+
+    #[test]
+    fn a_missing_program_cannot_be_launched() {
+        assert!(launch("/no/such/wsjtx").unwrap_err().starts_with("cannot start"));
+        assert_eq!(launch("  ").unwrap_err(), "no program chosen");
+    }
+}

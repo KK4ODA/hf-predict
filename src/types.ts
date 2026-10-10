@@ -421,6 +421,9 @@ export type RadioConfig = {
   rigModel: number;
   serialPort: string;
   baud: number;
+  /** Start WSJT-X once rigctld answers. */
+  startWsjtx: boolean;
+  wsjtxPath: string;
 };
 
 export type DaemonStatus = {

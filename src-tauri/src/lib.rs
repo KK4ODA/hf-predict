@@ -386,6 +386,8 @@ struct AppState {
     radio_config: Mutex<radio::RadioConfig>,
     radio: Mutex<Option<Arc<radio::Monitor>>>,
     scan: Mutex<Option<scanner::Runner>>,
+    /// What came of starting WSJT-X from this app, for the screen.
+    wsjtx_launch: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -522,6 +524,7 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
         radio_config: Mutex::new(radio_config.clone()),
         radio: Mutex::new(None),
         scan: Mutex::new(None),
+        wsjtx_launch: Mutex::new(None),
     };
     // A database that will not open is reported when the screen asks for data.
     let _ = state.apply(config);
@@ -551,6 +554,65 @@ impl AppState {
         }
         *self.radio_config.lock().unwrap_or_else(PoisonError::into_inner) = config;
     }
+}
+
+/// Seconds to wait for rigctld to answer before giving up on starting WSJT-X.
+const WSJTX_START_WAIT_S: u64 = 90;
+
+/// Starts WSJT-X once the radio monitor reads the radio, unless WSJT-X is
+/// already reporting over UDP. Runs on its own thread.
+fn start_wsjtx_when_ready(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let config = state.radio_config.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if !config.enabled || !config.start_wsjtx {
+            return;
+        }
+        let note = |text: String| {
+            *state.wsjtx_launch.lock().unwrap_or_else(PoisonError::into_inner) = Some(text);
+        };
+        note("Waiting for rigctld before starting WSJT-X…".into());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(WSJTX_START_WAIT_S);
+        loop {
+            let radio = state.radio_status();
+            if radio.state == "connected" && radio.radio.is_some() {
+                break;
+            }
+            if std::time::Instant::now() > deadline {
+                note(format!("WSJT-X was not started: rigctld did not answer within {WSJTX_START_WAIT_S} s ({}).", radio.detail));
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let reporting = state
+            .status()
+            .tracker
+            .as_ref()
+            .and_then(|t| t.decoders.first())
+            .is_some_and(|d| d.seconds_since_heard <= scanner::REPORTING_WITHIN_S);
+        if reporting {
+            note("WSJT-X was already running and reporting, so it was not started again.".into());
+            return;
+        }
+        match radio::daemon::launch(&config.wsjtx_path) {
+            Ok(pid) => note(format!(
+                "Started {} (process {pid}) once rigctld was up, at {} UTC.",
+                config.wsjtx_path,
+                timeutil::date_string(timeutil::now())
+            )),
+            Err(e) => note(format!("Could not start WSJT-X: {e}")),
+        }
+    });
+}
+
+#[tauri::command(async)]
+fn find_wsjtx() -> Vec<radio::daemon::FoundProgram> {
+    radio::daemon::find_wsjtx()
+}
+
+#[tauri::command]
+fn wsjtx_launch(state: tauri::State<AppState>) -> Option<String> {
+    state.wsjtx_launch.lock().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
 #[tauri::command]
@@ -583,6 +645,7 @@ fn set_radio_config(
 ) -> Result<radio::RadioStatus, String> {
     jsonfile::save(&local_data_file(&app, RADIO_FILE)?, &config)?;
     state.apply_radio(config);
+    start_wsjtx_when_ready(app.clone());
     Ok(state.radio_status())
 }
 
@@ -607,6 +670,7 @@ pub fn run() {
             install_cached_ssn_table(app.handle());
             app.manage(start_observing(app.handle()));
             check_logs_on_start(app.handle().clone());
+            start_wsjtx_when_ready(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -627,6 +691,8 @@ pub fn run() {
             find_rigctld,
             rig_models,
             serial_ports,
+            find_wsjtx,
+            wsjtx_launch,
             import_conditions,
             winlink_request,
             listener_status,

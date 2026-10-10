@@ -70,6 +70,9 @@ pub struct RadioConfig {
     pub rig_model: u32,
     pub serial_port: String,
     pub baud: u32,
+    /// Start WSJT-X once rigctld answers, so it finds the daemon up.
+    pub start_wsjtx: bool,
+    pub wsjtx_path: String,
 }
 
 impl Default for RadioConfig {
@@ -86,6 +89,8 @@ impl Default for RadioConfig {
             rig_model: 0,
             serial_port: String::new(),
             baud: 38_400,
+            start_wsjtx: false,
+            wsjtx_path: String::new(),
         }
     }
 }
