@@ -2,32 +2,48 @@
 
 Offline-first HF propagation prediction and measurement for amateur radio, for Windows, Linux and macOS.
 
-- **Predict** — model what HF propagation should be doing, using an established propagation engine running locally.
-- **Measure** — passively observe on-air FT8 signals to see what the station is actually hearing.
-- **Compare** — show where prediction and observation agree or disagree, and turn that into a band recommendation.
+- **Predict** — model what HF propagation should be doing, using the real VOACAP engine running locally.
+- **Measure** — listen to what the station is actually hearing, through WSJT-X.
+- **Compare** — show where prediction and observation agree or disagree, turn that into a band recommendation, and scan the bands to keep the picture current.
 
-The application is designed to stay useful with little or no Internet connectivity: portable operation, Field Day, EmComm and disaster response.
+The application stays useful with little or no Internet: portable operation, Field Day, EmComm and disaster response. It never transmits; there is no transmit function anywhere in it.
 
 ## Status
 
-Early development. Installers are on the [Releases](https://github.com/KK4ODA/hf-predict/releases) page; builds are not code-signed yet, so Windows and macOS warn on install.
+All ten phases of the [roadmap](docs/engineering-assessment.md#18-implementation-roadmap) are in, as of v0.10.2 (October 2026). Installers for Windows, macOS and Linux are on the [Releases](https://github.com/KK4ODA/hf-predict/releases) page and the app updates itself from there. Builds are not code-signed yet, so Windows and macOS warn on install.
 
-Working now:
+## What it does
 
-- Offline point-to-point prediction for the 80 m to 10 m amateur bands, hour by hour, using the real VOACAP engine bundled with the app.
-- Best bands for any hour, short and long path, a chart of the usable frequency range through the day, and a transmit-power comparison.
-- A world map for picking either end of the path, with day and night and a coverage overlay showing where a band reaches.
-- Station presets (power, antenna, local noise), saved stations and saved locations.
-- A bundled NOAA smoothed sunspot table, so no network is needed. A newer one is downloaded when there is a network.
-- Solar and geophysical conditions (flux, A and K indices, storm state, three-day and 27-day forecasts) with source and age. They can be fetched from NOAA, or requested over Winlink and imported from files or pasted text.
-- Prediction-guided scanning: the app moves the radio through the listening plan via the shared `rigctld`, retuning only when WSJT-X is not transmitting or working a station and split is off, reading back after every retune, and putting the radio back where it was when it stops for any reason. Receive only: there is no transmit function anywhere in the app.
-- A listening plan: which bands to listen on, in what order and for how long, from the prediction, what was heard in the last hour and how long each band has gone unsampled; bands to tick in WSJT-X's band hopping, and a schedule to follow by hand. Nothing transmits or moves the radio.
-- Reads the radio's frequency, mode, PTT, split and VFO through a `rigctld` shared with WSJT-X, which the app can start and stop itself (and start WSJT-X afterwards, so the order is right), and checks that both see the same dial. The app has no transmit function and does not change the radio in this version.
-- Passive reception of WSJT-X decodes over the network (shared with GridTracker and JTAlert through a multicast group), stored locally with per-band activity and a clock check; the ALL.TXT logs of any number of WSJT-X installations are read in place, new lines only.
-- A comparison of prediction with what has been heard toward the destination, a per-band recommendation, and a simplified Field screen.
-- In-app update check.
+| Tab | What you get |
+|---|---|
+| **Best bands** | For a path and an hour: each band's predicted reliability and SNR, the hours it is worth trying, and the effect of transmit power. Short or long path. |
+| **Compare** | Prediction beside what your own receiver heard toward the destination in the last hour, and a plain recommendation per band (HIGH PRIORITY, TRY, INVESTIGATE, …). |
+| **Field** | One simplified screen: the three bands to try, their good hours, conditions, how old every piece of data is, and the map. Everything from data on the computer. |
+| **Through the day** | Usable frequency range hour by hour, and an hour-by-band table. |
+| **Map** | Pick either end of the path on a zoomable world map, with day and night, a coverage overlay showing where a band reaches, and the stations heard. |
+| **Heard** | What WSJT-X is decoding right now, per-band activity, a check of the computer's clock, and the `ALL.TXT` logs of any number of WSJT-X installations, read in place. |
+| **Plan** | A listening plan: which bands to listen on, in what order and for how long, from the prediction, what was heard in the last hour and how long each band has gone unsampled. Follow it by hand, tick its bands in WSJT-X's band hopping, or let the app move the radio. |
+| **Radio** | Reads the radio through a `rigctld` shared with WSJT-X: frequency, mode, PTT, split and VFO, and whether WSJT-X sees the same dial. The app can start `rigctld` and WSJT-X itself, in the right order. |
+| **History** | Checks the predictions against every decode you have stored: were places heard more often where the model said they would be? |
+| **Conditions** | Solar flux, A and K indices, storm state, three-day and 27-day forecasts, with source and age; fetched from NOAA, or requested over Winlink and imported from files or pasted text. The smoothed sunspot table the model uses, bundled and refreshable. |
+| **Engine** | The exact input and output of the engine run behind the prediction. |
 
-The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture and the roadmap.
+Every hour and time is shown in UTC and local time. Warnings for a geomagnetic storm and for a computer clock that is off appear on every screen.
+
+## Getting started
+
+1. Install from [Releases](https://github.com/KK4ODA/hf-predict/releases). Enter your position in **From** (a locator such as `EM73tr`, or latitude, longitude) and a destination in **To**, pick your station preset, and press **Predict**.
+2. **Hearing.** In WSJT-X, File → Settings → Reporting, set the UDP server to `224.0.0.1`, port `2237` (a multicast group, so GridTracker, JTAlert and this app can all listen). On the Heard tab tick *Listen for WSJT-X*. To bring in history, add your `ALL.TXT` logs there (*Find logs* lists the ones in the usual folders); they are re-read on start-up, new lines only.
+3. **Radio** (optional, for scanning). Install Hamlib if WSJT-X did not ship `rigctld-wsjtx`. On the Radio tab tick *Start rigctld for me*, choose the program, your radio, its serial port and speed, and optionally *Start WSJT-X once rigctld is up*. In WSJT-X set the rig to *Hamlib NET rigctl* with network server `127.0.0.1:4532`, and turn off *Monitor returns to last used frequency*. WSJT-X only looks for `rigctld` when it starts, so start this app first or let it start WSJT-X.
+4. **Scanning.** On the Plan tab, under *Let the app move the radio*, the checklist must read Ready (radio connected, split off, WSJT-X reporting with transmit disabled, From position set). Confirm the antenna system is safe to retune on receive and press *Start scanning*. **STOP SCAN** puts the radio back where it was at any time; so does enabling transmit in WSJT-X, which pauses the scan.
+5. **Conditions.** Press *Refresh from NOAA* when there is a network. Without one, *Winlink request* gives the text to send to `INQUIRY@winlink.org`; import the replies from files or pasted text.
+
+## What it will not do, and how to read it
+
+- It never keys the transmitter and never changes the radio's mode; the only thing it sets is the frequency, only while scanning, only with your confirmation, and it reads the radio back after every change.
+- Predictions are monthly climatology from VOACAP: the share of days a path should work, not a forecast for today. Current conditions are shown so you can judge, and a storm is flagged, but they are not fed into the model.
+- "Nothing heard" is never "band closed": it depends on who is transmitting. Hearing a station shows the band is open that way for FT8; it does not show they can hear you, and your own mode may need 25 dB more.
+- Everything is stored on the computer. Nothing is sent anywhere except the requests you make to NOAA or Winlink.
 
 ## Building
 
@@ -39,7 +55,9 @@ npm install
 npm run tauri dev                # or: npm run tauri build
 ```
 
-Tests: `sh tests/engine/run-reference.sh` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+Tests: `sh tests/engine/run-reference.sh` (engine reference cases) and `cargo test --manifest-path src-tauri/Cargo.toml` (about 130 unit and integration tests, including a stand-in `rigctld` over TCP and a UDP listener). Longer checks that need local data are ignored by default and documented in the test files: the importer and the calibration over a real `ALL.TXT`, and starting the real `rigctld` with Hamlib's dummy radio.
+
+The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture, the roadmap, and what each phase found.
 
 ## License
 

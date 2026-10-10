@@ -13,12 +13,14 @@ Facts in this document were checked against primary sources (project repositorie
 | Second engine | ITURHFProp (ITU-R P.533) later and optional. Its licence grant is narrow, its data is about 138 MB, and a macOS build is unverified. |
 | Solar input | VOACAP consumes only the monthly smoothed sunspot number. Bundle a NOAA SWPC observed and predicted table. Everything else (Kp, A, flux, X-ray) is operator awareness, not model input. |
 | FT8 observations | Listen to WSJT-X's UDP stream over multicast. Observe-only first. No decoder of our own until there is a strong reason. |
-| Radio control | Later phase. Shared `rigctld` with WSJT-X as a co-client. WSJT-X has no UDP message for changing frequency. |
-| Before CAT | Use the FT8 band hopping built into WSJT-X 3.0 with a hop list our app recommends. No CAT risk. |
+| Radio control | Done (Phases 8 and 9): shared `rigctld` with WSJT-X as a co-client, read-only first, then frequency-only retunes under the rules of section 10. WSJT-X has no UDP message for changing frequency. |
+| Before CAT | Done (Phase 7): a listening plan whose bands can be ticked in WSJT-X's band hopping or followed by hand. No CAT risk. |
 | Winlink | Request four small text products from the PROPAGATION catalog (about 8 kB as delivered). Import by folder watch, file open or paste. |
 | Application stack | Tauri 2 (Rust core, TypeScript UI), SQLite, bundled offline map data. |
 | Distribution | Public GitHub repository, GitHub Actions builds for three operating systems, signed in-app updater against GitHub Releases, and an offline installer path. |
 | App licence | Apache-2.0 (decided, section 19). |
+
+**Status (2026-10-10, v0.10.2).** Phases 0 to 9 of the roadmap in section 18 are shipped, and the history and calibration part of Phase 10. Each phase's findings are recorded in a *results* subsection of the relevant section. Still open: the Winlink folder watch, external observation networks (PSK Reporter, deferred by the owner), a second engine, a native decoder, timing retunes to the decode cycle, and operating-system code signing.
 
 ---
 
@@ -698,7 +700,7 @@ Maps are drawn from bundled vector data. No tile server is needed.
 | 11 | GPL code entering the build by accident | Section 3 list; CI licence check; GPL programs only as separate processes. |
 | 12 | Unsigned installers trigger Windows and macOS warnings | Accepted for now; signing deferred (section 19). Install instructions will explain the warnings. |
 | 13 | Windows web view missing on older offline machines | Ship the offline web-view installer inside ours. |
-| 14 | `rigctld` security history | Bind to loopback; require 4.7.2 or later. |
+| 14 | `rigctld` security history | Bind to loopback (the app starts the daemon with `-T 127.0.0.1`). The version found is shown; 4.7.2 or later is recommended but not enforced, since the first station runs 4.7.1 and WSJT-X's own copy is 4.7.3. |
 | 15 | ITU licence wording too narrow to bundle ITURHFProp | Ask ITU-R SG3; keep it optional. |
 
 ---
@@ -739,6 +741,8 @@ Changes from the proposed order, and why:
 | 9 | Prediction-guided automatic scanning through shared `rigctld` | Simulation properties hold; supervised on-air trial with two radio families |
 | 10 | History and calibration: recurring openings, accuracy tracking, station baselines; Winlink folder watch; optional external networks, second engine, native decoder | — |
 
+**Progress.** Phase 0 shipped in v0.1.0 (2026-10-04); 1 in v0.2.0; 2 in v0.3.0; 3 in v0.4.0; 4 in v0.5.0; 5 in v0.6.0; 6 in v0.7.0; the calibration and History parts of 10 in v0.7.2 and v0.7.3; 7 in v0.8.0; 8 in v0.9.0 and v0.9.1; 9 in v0.10.0 to v0.10.2 (all 2026-10-10). The first on-air trial of Phase 9 was on one radio family (Yaesu FTDX10); the second family in its exit test is still to come. The rest of Phase 10 is not started.
+
 ---
 
 ## 19. Decisions and open items
@@ -749,17 +753,20 @@ Changes from the proposed order, and why:
 2. **Code signing: deferred.** No certificates for now, so early builds are unsigned and Windows and macOS will show install warnings. Update files are still signed with the project's own free updater key, which is separate from operating-system code signing.
 3. **UI stack: Tauri 2.**
 4. **Sunspot scale default:** current published (new-scale) values, as VOACAP Online does, with an advanced setting (section 4).
-5. **First test radio: Yaesu FTDX10.** Its Hamlib backend is expected to be the Yaesu one that issues a band-select on band changes (unverified), so rule 3 in section 10 applies directly.
+5. **First test radio: Yaesu FTDX10.** Its Hamlib backend is expected to be the Yaesu one that issues a band-select on band changes (unverified), so rule 3 in section 10 applies directly. Verified on 2026-10-10: across the first scan's band changes the mode stayed DATA-U and STOP SCAN returned the radio to its band.
+6. **PSK Reporter and other external observation sources: not now** (2026-10-10). The measurement side is the station's own receiver.
+7. **Start order:** WSJT-X only looks for `rigctld` when it starts, so the app that starts the daemon must come first; the app can start WSJT-X itself (2026-10-10).
 
 **To obtain**
 
-- Copies of real Winlink replies for `wwv.txt`, `sgas.txt`, `3-day-forecast.txt` and `27-day-outlook.txt`, with callsign and message ID removed, as parser fixtures. Replies were received and inspected on 2026-10-04 but are not yet in the repository.
-- UDP captures from a normal WSJT-X session, as parser fixtures.
+- ~~Copies of real Winlink replies~~ In the repository since Phase 3 (`tests/fixtures/winlink`), sanitised.
+- UDP captures from a normal WSJT-X session, as parser fixtures. Live traffic was checked against the parser on 2026-10-10 (section 6), but no capture is stored yet.
 
 **To verify**
 
-- Multicast on macOS loopback.
-- The flux-to-sunspot regression.
+- Multicast on macOS loopback (the macOS build is otherwise only exercised by CI).
+- The flux-to-sunspot regression (not built; the model uses the smoothed table only).
+- The second radio family for the Phase 9 exit test.
 - Saildocs handling of a small text file from GitHub.
 - Terms for the callsign prefix table.
 - ITU-R's position on bundling ITURHFProp.
