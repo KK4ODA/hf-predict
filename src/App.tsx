@@ -10,6 +10,7 @@ import { FieldPanel } from "./FieldPanel";
 import { HeardPanel } from "./HeardPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { MapPanel } from "./MapPanel";
+import { MostContacts } from "./MostContacts";
 import { PlanPanel } from "./PlanPanel";
 import { PowerTable } from "./PowerTable";
 import { RadioPanel } from "./RadioPanel";
@@ -42,6 +43,7 @@ type RunState =
 
 export type View =
   | "field"
+  | "contacts"
   | "plan"
   | "radio"
   | "bands"
@@ -61,6 +63,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: "Operate",
     items: [
       { id: "field", label: "Field", needsPath: true },
+      { id: "contacts", label: "Most contacts", needsPath: false },
       { id: "plan", label: "Plan", needsPath: false },
       { id: "radio", label: "Radio", needsPath: false },
     ],
@@ -702,6 +705,24 @@ function App() {
                 logFiles={userData.logFiles}
                 onLogFilesChange={(logFiles) => saveUserData({ ...userData, logFiles })}
                 defaultRxPosition={txPosition}
+              />
+            )}
+
+            {view === "contacts" && (
+              <MostContacts
+                txPosition={txPosition}
+                year={year}
+                month={month}
+                ssn={ssnValue}
+                txStation={txStation}
+                rxStation={rxStation}
+                mode={mode}
+                modeLabel={modeLabel}
+                reliability={reliability}
+                clockHour={clockHour}
+                nowClock={nowClock}
+                zone={zone}
+                onSelectHour={setClockHour}
               />
             )}
 

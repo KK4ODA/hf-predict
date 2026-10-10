@@ -21,6 +21,7 @@ All ten phases of the [roadmap](docs/engineering-assessment.md#18-implementation
 | **Best bands** | For a path and an hour: each band's predicted reliability and SNR, the hours it is worth trying, and the effect of transmit power. Short or long path. |
 | **Compare** | Prediction beside what your own receiver heard toward the destination in the last hour, and a plain recommendation per band (HIGH PRIORITY, TRY, INVESTIGATE, …). Beside it, the other direction: stations that way heard sending signal reports to you or to stations near you. |
 | **Field** | One simplified screen: the three bands to try, their good hours, conditions, how old every piece of data is, and the map. Everything from data on the computer. |
+| **Most contacts** | For working as many stations as possible rather than one place: each band ranked by how many of the stations in your log it should reach at the hour shown, by distance, and through the day. |
 | **Through the day** | Usable frequency range hour by hour, and an hour-by-band table. |
 | **Map** | Pick either end of the path on a zoomable world map, with day and night, a coverage overlay showing where a band reaches, and the stations heard. |
 | **Heard** | What WSJT-X is decoding right now, per-band activity, who hears your area (from the signal reports distant stations send to you and your neighbours), a check of the computer's clock, and the `ALL.TXT` logs of any number of WSJT-X installations, read in place. |
@@ -42,6 +43,7 @@ Taken with a real FT8 prediction from the engine (EM73tr to IO91wm, October) and
 | ![Best bands](docs/screenshots/bands.png) **Best bands**: every band ranked for the hour, with a 24-hour strip each | ![Map](docs/screenshots/map.png) **Map**: predicted coverage, stations heard, path, day and night |
 | ![Heard](docs/screenshots/heard.png) **Heard**: what WSJT-X decoded, by band and station | ![Plan](docs/screenshots/plan.png) **Plan**: a listening plan to follow by hand, or a receive-only scan |
 | ![History](docs/screenshots/history.png) **History**: how often places were heard against what the model predicted | ![Conditions](docs/screenshots/conditions.png) **Conditions**: solar and geomagnetic readings with source and age |
+| ![Most contacts](docs/screenshots/contacts.png) **Most contacts**: bands ranked by how many stations in your log they should reach | |
 | ![Radio](docs/screenshots/radio.png) **Radio**: the radio through a shared `rigctld` | ![Daylight](docs/screenshots/bands-daylight.png) **Daylight** theme for outdoor use |
 
 ## Getting started

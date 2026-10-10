@@ -4,7 +4,7 @@ HF Predict tells you which HF bands should reach a place, and at what hours. It 
 
 The app is receive only. It has no transmit function, and the only things it ever changes on the radio are the frequency and the mode, during a scan you start yourself.
 
-This manual describes version 0.12.0.
+This manual describes version 0.13.0.
 
 ## Contents
 
@@ -15,14 +15,15 @@ This manual describes version 0.12.0.
 5. [Model views: Best bands, Through the day, Map, Engine](#model-views)
 6. [Hearing with WSJT-X](#hearing-with-wsjt-x)
 7. [Comparing the model with what you hear](#comparing-the-model-with-what-you-hear)
-8. [Space weather](#space-weather)
-9. [Listening plans](#listening-plans)
-10. [Connecting the radio](#connecting-the-radio)
-11. [Scanning](#scanning)
-12. [Stations, places and settings](#stations-places-and-settings)
-13. [Where your data is kept](#where-your-data-is-kept)
-14. [Troubleshooting](#troubleshooting)
-15. [What the app will not do](#what-the-app-will-not-do)
+8. [Most contacts](#most-contacts)
+9. [Space weather](#space-weather)
+10. [Listening plans](#listening-plans)
+11. [Connecting the radio](#connecting-the-radio)
+12. [Scanning](#scanning)
+13. [Stations, places and settings](#stations-places-and-settings)
+14. [Where your data is kept](#where-your-data-is-kept)
+15. [Troubleshooting](#troubleshooting)
+16. [What the app will not do](#what-the-app-will-not-do)
 
 ## Installing
 
@@ -83,7 +84,7 @@ The app starts with the first station preset each time. If you have saved your o
 
 | Group | Views |
 |---|---|
-| Operate | Field, Plan, Radio |
+| Operate | Field, Most contacts, Plan, Radio |
 | Model | Best bands, Through the day, Map |
 | Observe | Heard, Compare, History |
 | Space weather | Conditions |
@@ -96,7 +97,7 @@ Views that need a predicted path show the word *path* beside their name until yo
 | Keys | Action |
 |---|---|
 | Ctrl+Enter | Predict |
-| Alt+1 to Alt+9, then Alt+0 | Open the first ten views in list order, from Field to Conditions |
+| Alt+1 to Alt+9, then Alt+0 | Open the first ten views in list order, from Field to History |
 | `[` and `]` | Previous and next hour |
 | `n` | Back to the current hour |
 
@@ -291,6 +292,43 @@ The chart groups the places by what the model predicted for them, from under 10%
 If the model is any good, the columns rise from left to right. They stay well below the predicted figures, because a place is heard only when someone there is transmitting, so compare the shape of the columns and not their height.
 
 The check places your receiver at the From position, uses the noise level of *My station*, and assumes the other station runs 100 W into a simple antenna. Decodes without a locator, on a band the model does not cover, or in a month outside the sunspot table are left out, and the count of them is shown. *Show as a table* gives the figures behind the chart.
+
+## Most contacts
+
+![Most contacts: every band ranked by how many of the stations in your log it should reach, and the whole day below](screenshots/contacts.png)
+
+The other views are about one path. Most contacts is for when you want to work as many stations as you can, wherever they are. It does not need a To position.
+
+For each band it adds up how many of the stations in your log a signal from you should reach. Each station is placed by the locator it last sent. The model gives the share of days your signal reaches that locator square in the mode chosen in the path bar, and those shares are summed over the stations. A band that reaches 90% of the days to 800 stations scores 720. The figure means "about this many stations, on a typical day of the month".
+
+### Reading it
+
+The view opens with the band to try first at the hour shown. The table ranks every band and gives:
+
+- *Should reach*, the number of stations;
+- *Share of those counted*, the same as a share of all the stations counted;
+- the same number split by distance, from under 1,000 km to over 8,000 km. These four columns are hidden when the window is narrow;
+- *Heard, last hour*: callsigns your receiver decoded on the band in the last hour;
+- *Hear your area*: stations heard in the last hour reporting you or a station near you.
+
+The last two columns are what is happening now, whatever hour is shown.
+
+Two settings choose which stations count:
+
+- *Count every station heard*, or only *stations usually on at this hour*: those heard within an hour either side of it, on any day and band. Where your log has fewer than 3 hours of listening around that time of day, it cannot tell who is usually on, so every station counts and the view says so.
+- *From all of it*, or from the last year, 90 days or 30 days of your log.
+
+### Through the day
+
+*Work out every hour* fills a table of every band against every hour. Each cell holds the number of stations, shaded by the share of those counted. The hour shown is outlined, and clicking an hour shows it everywhere in the app. The first time for a month, station profile and mode takes about half a minute. After that the predictions are kept, and it takes about a second. The *Counted* row gives the number of stations behind each hour; an asterisk marks hours where only stations usually on at that hour were counted.
+
+### What it leaves out
+
+- The stations are the ones your receiver could hear. Places it never hears are missing, so the more you have listened, on more bands, the better the picture.
+- Your log is of FT8 stations, even when the mode is SSB or CW. Voice operators are in broadly the same places, but not the same numbers.
+- Each station is assumed to run a station like your *Other station* profile, with the antennas aimed at it.
+- Stations within 100 km are left out, because the model covers sky wave only.
+- A band that reaches many stations can also be crowded. Once plenty of stations are workable, the time each contact takes sets your rate, so reach beyond that adds little.
 
 ## Space weather
 

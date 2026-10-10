@@ -233,6 +233,16 @@ fn bare(call: &str) -> String {
     call.trim().trim_start_matches('<').trim_end_matches('>').to_uppercase()
 }
 
+/// A station heard, where it last said it was, and when it is on the air.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StationPlace {
+    pub callsign: String,
+    /// The locator it last sent.
+    pub grid: String,
+    /// A bit for each UTC hour it was heard in, on any day and band.
+    pub hours: u32,
+}
+
 pub struct Database {
     connection: Mutex<Connection>,
 }
@@ -465,6 +475,62 @@ impl Database {
             })
             .map_err(text)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(text)
+    }
+
+    /// For each UTC hour, how many clock hours since `since_utc` this
+    /// receiver was listening in, on any band: from the recorded listening
+    /// and from the decodes themselves, which logs read later also give.
+    pub fn listened_hours_by_hour(&self, since_utc: i64) -> Result<[u32; 24], String> {
+        let mut slots: HashSet<i64> = HashSet::new();
+        for interval in self.listening_intervals()? {
+            let mut time = interval.start_utc.max(since_utc);
+            time -= time.rem_euclid(3600);
+            while time < interval.end_utc {
+                slots.insert(time / 3600);
+                time += 3600;
+            }
+        }
+        {
+            let connection = self.lock();
+            let mut statement = connection
+                .prepare("SELECT DISTINCT time_utc / 3600 FROM observations WHERE time_utc >= ?1")
+                .map_err(text)?;
+            let rows = statement.query_map([since_utc], |r| r.get::<_, i64>(0)).map_err(text)?;
+            for row in rows {
+                slots.insert(row.map_err(text)?);
+            }
+        }
+        let mut hours = [0u32; 24];
+        for slot in slots {
+            hours[slot.rem_euclid(24) as usize] += 1;
+        }
+        Ok(hours)
+    }
+
+    /// Every station heard since `since_utc` that sent a locator.
+    pub fn station_places(&self, since_utc: i64) -> Result<Vec<StationPlace>, String> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare(
+                "SELECT sender, grid, time_utc FROM observations
+                 WHERE time_utc >= ?1 AND sender IS NOT NULL AND grid IS NOT NULL AND settling = 0
+                 ORDER BY time_utc",
+            )
+            .map_err(text)?;
+        let rows = statement
+            .query_map([since_utc], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))
+            .map_err(text)?;
+        let mut places: BTreeMap<String, StationPlace> = BTreeMap::new();
+        for row in rows {
+            let (sender, grid, time) = row.map_err(text)?;
+            let callsign = bare(&sender);
+            let place = places
+                .entry(callsign.clone())
+                .or_insert(StationPlace { callsign, grid: String::new(), hours: 0 });
+            place.grid = grid;
+            place.hours |= 1 << ((time.rem_euclid(86_400) / 3600) as u32);
+        }
+        Ok(places.into_values().collect())
     }
 
     /// The latest locator each of these callsigns sent, by callsign.
@@ -806,6 +872,28 @@ mod tests {
                 s.reported.iter().map(|r| format!("{} {:.0} km", r.callsign, r.distance_km)).collect::<Vec<_>>());
         }
         let _ = std::fs::remove_file(&copy);
+    }
+
+    #[test]
+    fn places_stations_by_their_last_locator_and_the_hours_they_were_on() {
+        let db = Database::in_memory().unwrap();
+        let at = |time: i64, call: &str, grid: &str| Observation {
+            message: format!("CQ {call} {grid} {time}"),
+            grid: Some(grid.into()),
+            ..observation(time, call, -5)
+        };
+        db.insert(&at(14 * 3600, "K1ABC", "FN42")).unwrap();
+        db.insert(&at(86_400 + 15 * 3600, "K1ABC", "FN43")).unwrap();
+        db.insert(&at(2 * 3600, "G4AAA", "IO91")).unwrap();
+        let places = db.station_places(0).unwrap();
+        assert_eq!(
+            places,
+            [
+                StationPlace { callsign: "G4AAA".into(), grid: "IO91".into(), hours: 1 << 2 },
+                StationPlace { callsign: "K1ABC".into(), grid: "FN43".into(), hours: 1 << 14 | 1 << 15 },
+            ]
+        );
+        assert_eq!(db.station_places(86_400).unwrap().len(), 1);
     }
 
     #[test]

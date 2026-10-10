@@ -380,6 +380,33 @@ export type HearingStation = {
 
 export type HearingYourArea = { ownCall: string | null; stations: HearingStation[] };
 
+export type BandReach = {
+  band: string;
+  /** Stations a signal should reach on a typical day. */
+  expected: number;
+  /** Under 1000 km, 1000 to 3000, 3000 to 8000, over 8000. */
+  byDistance: [number, number, number, number];
+};
+
+export type HourReach = {
+  clockHour: number;
+  stations: number;
+  /** Only stations usually on at this hour were counted. */
+  timeOfDay: boolean;
+  listenedHours: number;
+  bands: BandReach[];
+};
+
+export type ContactsReport = {
+  stationsInLog: number;
+  tooNear: number;
+  squares: number;
+  ssn: number;
+  hours: HourReach[];
+  computed: number;
+  cached: number;
+};
+
 export type ImportSummary = {
   stored: number;
   alreadyStored: number;
