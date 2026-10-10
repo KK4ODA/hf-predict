@@ -395,6 +395,8 @@ Shipped as the scan section of the Plan tab, after the read path was checked aga
 
 Band-stack mode recall, found on the FTDX10 (v0.11.4). Later scans stopped with "the mode changed from PKTUSB to USB on retuning": moving onto a band whose band-stack memory held USB brought the radio up in USB, as rule 3 anticipated. The `RadioController` gained a second set, the mode (`+\set_mode MODE PASSBAND`, with -1 leaving the passband alone; checked against Hamlib 4.7.1's `rigctld`). A new radio setting, *Mode while scanning*, defaults to DATA-U (Hamlib `PKTUSB`), with USB or "keep the radio's own mode" as alternatives. After every retune the scanner sets that mode if the radio is in another, reads back, and stops only if it will not stick; the scan status counts how often it had to. On stop it puts back the frequency, then the operator's own mode and passband. There is still no PTT anywhere.
 
+Scan plans follow the clock (v0.11.5). A scan with "keep going" renewed its plan for hours, but every plan was predicted for the hour shown when it started, because the runner reused the query the Plan tab sent. The scan now stamps each plan, the first and every renewal, with the current UTC hour and month (`PlanQuery::at`), so the prediction ranks bands for the hour they are listened to, as the heard and staleness terms already did. Plans made by hand still use the hour shown, so the operator can plan ahead.
+
 ---
 
 ## 11. Adaptive prediction-guided scanning
