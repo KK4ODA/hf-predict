@@ -424,6 +424,8 @@ export type RadioConfig = {
   /** Start WSJT-X once rigctld answers. */
   startWsjtx: boolean;
   wsjtxPath: string;
+  /** The mode a scan keeps the radio in, as Hamlib names it; empty keeps the radio's own. */
+  scanMode: string;
 };
 
 export type DaemonStatus = {
@@ -471,4 +473,8 @@ export type ScanStatus = {
   saved: RadioState | null;
   restored: boolean;
   plansRun: number;
+  /** The mode the scan keeps the radio in, as Hamlib names it. */
+  mode: string | null;
+  /** Times a band change brought the radio up in another mode and it was set back. */
+  modeSets: number;
 };

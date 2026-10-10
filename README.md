@@ -54,7 +54,7 @@ Taken with a real FT8 prediction from the engine (EM73tr to IO91wm, October) and
 
 ## What it will not do, and how to read it
 
-- It never keys the transmitter and never changes the radio's mode; the only thing it sets is the frequency, only while scanning, only with your confirmation, and it reads the radio back after every change.
+- It never keys the transmitter. It sets only the frequency and mode, only while scanning, only with your confirmation, and it reads the radio back after every change. Some radios, the FTDX10 among them, recall each band's last mode on a band change; the scan sets the mode chosen on the Radio tab (DATA-U by default) when that happens, and puts your own frequency and mode back when it stops.
 - Predictions are monthly climatology from VOACAP: the share of days a path should work, not a forecast for today. Current conditions are shown so you can judge, and a storm is flagged, but they are not fed into the model.
 - "Nothing heard" is never "band closed": it depends on who is transmitting. Hearing a station shows the band is open that way for FT8; it does not show they can hear you, and your own mode may need 25 dB more.
 - Everything is stored on the computer. Nothing is sent anywhere except the requests you make to NOAA or Winlink.
