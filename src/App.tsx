@@ -1,31 +1,33 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { BandLadder } from "./BandLadder";
 import { BestBands } from "./BestBands";
 import { ComparePanel } from "./ComparePanel";
 import { ConditionsPanel } from "./ConditionsPanel";
+import { EnginePanel } from "./EnginePanel";
 import { FieldPanel } from "./FieldPanel";
-import { FrequencyChart } from "./FrequencyChart";
 import { HeardPanel } from "./HeardPanel";
 import { HistoryPanel } from "./HistoryPanel";
-import { PlanPanel } from "./PlanPanel";
-import { RadioPanel } from "./RadioPanel";
-import { HourTable } from "./HourTable";
 import { MapPanel } from "./MapPanel";
+import { PlanPanel } from "./PlanPanel";
 import { PowerTable } from "./PowerTable";
-import { StationEditor } from "./StationEditor";
-import { UpdateCheck } from "./UpdateCheck";
+import { RadioPanel } from "./RadioPanel";
+import { SetupPanel, Theme } from "./SetupPanel";
+import { Live, StatusBar } from "./StatusBar";
+import { useComparison, verdictIcon } from "./comparison";
 import { clockHour as clockOf } from "./tiers";
 import { localHour, zoneForMonth } from "./localtime";
 import {
-  ClockCheck,
   Conditions,
   ListenerStatus,
   Mode,
   Options,
+  PathDetail,
   PathOverview,
   PathRequest,
-  SavedLocation,
+  RadioStatus,
+  ScanStatus,
   StationProfile,
   UserData,
 } from "./types";
@@ -34,59 +36,186 @@ import "./App.css";
 type RunState =
   | { kind: "idle" }
   | { kind: "running" }
-  | { kind: "done"; result: PathOverview }
+  | { kind: "done"; result: PathOverview; key: string }
   | { kind: "failed"; error: string };
 
-type Tab = "bands" | "compare" | "field" | "day" | "map" | "heard" | "plan" | "radio" | "history" | "conditions" | "engine";
+export type View =
+  | "field"
+  | "plan"
+  | "radio"
+  | "bands"
+  | "day"
+  | "map"
+  | "heard"
+  | "compare"
+  | "history"
+  | "conditions"
+  | "setup"
+  | "engine";
 
-const CLOCK_POLL_MS = 15000;
+type NavItem = { id: View; label: string; needsPath: boolean };
 
-const TABS: { id: Tab; label: string; needsResult: boolean }[] = [
-  { id: "bands", label: "Best bands", needsResult: true },
-  { id: "compare", label: "Compare", needsResult: true },
-  { id: "field", label: "Field", needsResult: true },
-  { id: "day", label: "Through the day", needsResult: true },
-  { id: "map", label: "Map", needsResult: false },
-  { id: "heard", label: "Heard", needsResult: false },
-  { id: "plan", label: "Plan", needsResult: false },
-  { id: "radio", label: "Radio", needsResult: false },
-  { id: "history", label: "History", needsResult: false },
-  { id: "conditions", label: "Conditions", needsResult: false },
-  { id: "engine", label: "Engine", needsResult: true },
+const NAV: { group: string; items: NavItem[] }[] = [
+  {
+    group: "Operate",
+    items: [
+      { id: "field", label: "Field", needsPath: true },
+      { id: "plan", label: "Plan", needsPath: false },
+      { id: "radio", label: "Radio", needsPath: false },
+    ],
+  },
+  {
+    group: "Model",
+    items: [
+      { id: "bands", label: "Best bands", needsPath: true },
+      { id: "day", label: "Through the day", needsPath: true },
+      { id: "map", label: "Map", needsPath: false },
+    ],
+  },
+  {
+    group: "Observe",
+    items: [
+      { id: "heard", label: "Heard", needsPath: false },
+      { id: "compare", label: "Compare", needsPath: true },
+      { id: "history", label: "History", needsPath: false },
+    ],
+  },
+  { group: "Space weather", items: [{ id: "conditions", label: "Conditions", needsPath: false }] },
+  {
+    group: "Setup",
+    items: [
+      { id: "setup", label: "Stations", needsPath: false },
+      { id: "engine", label: "Engine", needsPath: true },
+    ],
+  },
 ];
+const VIEWS = NAV.flatMap((g) => g.items);
 
-const SSN_KIND = {
-  observed: "observed",
-  predicted: "predicted",
-  manual: "entered by hand",
+const LIVE_POLL_MS = 3000;
+const SESSION_KEY = "hfp-session";
+
+type Session = {
+  txPosition: string;
+  rxPosition: string;
+  mode: Mode;
+  view: View;
+  longPath: boolean;
 };
 
+/** The last path and view, so the app reopens where it was. Per computer only. */
+function loadSession(): Partial<Session> {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveSession(session: Session) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // Private windows and locked-down profiles have no storage; nothing to do.
+  }
+}
+
+/** Listener, radio and scan state, refreshed for the status strip. */
+function useLive(): Live {
+  const [live, setLive] = useState<Live>({ listener: null, radio: null, scan: null });
+  useEffect(() => {
+    let current = true;
+    const poll = async () => {
+      const [listener, radio, scan] = await Promise.allSettled([
+        invoke<ListenerStatus>("listener_status"),
+        invoke<RadioStatus>("radio_status"),
+        invoke<ScanStatus>("scan_status"),
+      ]);
+      if (!current) return;
+      setLive({
+        listener: listener.status === "fulfilled" ? listener.value : null,
+        radio: radio.status === "fulfilled" ? radio.value : null,
+        scan: scan.status === "fulfilled" ? scan.value : null,
+      });
+    };
+    poll();
+    const timer = setInterval(poll, LIVE_POLL_MS);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, []);
+  return live;
+}
+
+/** The current time in seconds, ticking once a second. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
+
+/** The combined recommendation for the current hour, for the status strip. */
+function BestNow({ detail, nowClock, onOpen }: { detail: PathDetail; nowClock: number; onOpen: () => void }) {
+  const hours = detail.prediction.run.prediction.hours;
+  const index = Math.max(0, hours.findIndex((h) => clockOf(h.utcHour) === nowClock));
+  const [rows] = useComparison(detail, index, 60);
+  const best = [...rows].sort(
+    (a, b) => a.verdict.priority - b.verdict.priority || b.modeReliability - a.modeReliability,
+  )[0];
+  return (
+    <button type="button" className="sb-cell sb-best" onClick={onOpen} title="Best band now, from the model and what was heard">
+      <span className="sb-label">Best now</span>
+      {best ? (
+        <>
+          <span className={`verdict verdict-${best.verdict.priority}`} aria-hidden="true">
+            {verdictIcon(best.verdict.priority)}
+          </span>
+          <span className="sb-value">{best.band}</span>
+          <span className="sb-sub">{best.verdict.label.toLowerCase()}</span>
+        </>
+      ) : (
+        <span className="sb-value small">…</span>
+      )}
+    </button>
+  );
+}
+
 function App() {
+  const session = useMemo(loadSession, []);
   const [version, setVersion] = useState("");
   const [options, setOptions] = useState<Options | null>(null);
   const [userData, setUserData] = useState<UserData>({ locations: [], stations: [], logFiles: [] });
   const [conditions, setConditions] = useState<Conditions | null>(null);
-  const [clock, setClock] = useState<ClockCheck | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [theme, setTheme] = useState<Theme>(
+    () => (document.documentElement.dataset.theme as Theme | undefined) ?? "dark",
+  );
 
-  const now = new Date();
-  const [txPosition, setTxPosition] = useState("");
-  const [rxPosition, setRxPosition] = useState("");
-  const [year, setYear] = useState(now.getUTCFullYear());
-  const [month, setMonth] = useState(now.getUTCMonth() + 1);
+  const started = useMemo(() => new Date(), []);
+  const [txPosition, setTxPosition] = useState(session.txPosition ?? "");
+  const [rxPosition, setRxPosition] = useState(session.rxPosition ?? "");
+  const [year, setYear] = useState(started.getUTCFullYear());
+  const [month, setMonth] = useState(started.getUTCMonth() + 1);
   const [ssn, setSsn] = useState("");
-  const [mode, setMode] = useState<Mode>("ssb");
+  const [mode, setMode] = useState<Mode>(session.mode ?? "ssb");
   const [reliability, setReliability] = useState(90);
   const [txStation, setTxStation] = useState<StationProfile | null>(null);
   const [rxStation, setRxStation] = useState<StationProfile | null>(null);
-  const [newLocation, setNewLocation] = useState<SavedLocation>({ name: "", position: "" });
   const [run, setRun] = useState<RunState>({ kind: "idle" });
+  const [moreOpen, setMoreOpen] = useState(false);
 
-  // What the results area is showing.
-  const [tab, setTab] = useState<Tab>("map");
-  const [longPath, setLongPath] = useState(false);
-  const [clockHour, setClockHour] = useState(now.getUTCHours());
+  const [view, setView] = useState<View>(session.view ?? "field");
+  const [longPath, setLongPath] = useState(session.longPath ?? false);
+  const [clockHour, setClockHour] = useState(started.getUTCHours());
   const zone = zoneForMonth(year, month);
+  const live = useLive();
+  const nowS = useNow();
+  const nowClock = new Date(nowS * 1000).getUTCHours();
+  const fromRef = useRef<HTMLInputElement>(null);
+  const autoRan = useRef(false);
 
   useEffect(() => {
     getVersion().then(setVersion);
@@ -97,26 +226,24 @@ function App() {
     });
     invoke<UserData>("load_user_data")
       .then(setUserData)
-      .catch((error) => setLoadError(`Saved data: ${error}`));
+      .catch((error) => setLoadError(`Saved data could not be read: ${error}`));
     invoke<Conditions>("conditions")
       .then(setConditions)
-      .catch((error) => setLoadError(`Conditions: ${error}`));
+      .catch((error) => setLoadError(`Conditions could not be read: ${error}`));
   }, []);
 
-  // The clock check from the listener, for a warning on every screen.
   useEffect(() => {
-    let active = true;
-    const poll = () =>
-      invoke<ListenerStatus>("listener_status")
-        .then((s) => active && setClock(s.state === "listening" ? (s.tracker?.clock ?? null) : null))
-        .catch(() => active && setClock(null));
-    poll();
-    const timer = setInterval(poll, CLOCK_POLL_MS);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, []);
+    saveSession({ txPosition, rxPosition, mode, view, longPath });
+  }, [txPosition, rxPosition, mode, view, longPath]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem("hfp-theme", theme);
+    } catch {
+      // No storage: the theme lasts for this session only.
+    }
+  }, [theme]);
 
   async function saveUserData(next: UserData) {
     setUserData(next);
@@ -124,49 +251,76 @@ function App() {
       await invoke("save_user_data", { data: next });
       setLoadError("");
     } catch (error) {
-      setLoadError(`Saved data: ${error}`);
+      setLoadError(`Saved data could not be written: ${error}`);
     }
   }
 
-  function saveStation(station: StationProfile) {
-    const others = userData.stations.filter((s) => s.name !== station.name);
-    saveUserData({ ...userData, stations: [...others, station] });
-  }
+  const request: PathRequest | null =
+    txStation && rxStation
+      ? {
+          txPosition,
+          rxPosition,
+          year,
+          month,
+          ssn: ssn.trim() === "" ? null : Number(ssn),
+          txStation,
+          rxStation,
+          mode,
+          requiredReliabilityPct: reliability,
+          // Both paths are always computed; the path switch picks one.
+          longPath: false,
+        }
+      : null;
+  const requestKey = request ? JSON.stringify(request) : "";
 
-  function addLocation() {
-    const location = { name: newLocation.name.trim(), position: newLocation.position.trim() };
-    const others = userData.locations.filter((l) => l.name !== location.name);
-    saveUserData({ ...userData, locations: [...others, location] });
-    setNewLocation({ name: "", position: "" });
-  }
-
-  async function predict(event: FormEvent) {
-    event.preventDefault();
-    if (!txStation || !rxStation) return;
-    const request: PathRequest = {
-      txPosition,
-      rxPosition,
-      year,
-      month,
-      ssn: ssn.trim() === "" ? null : Number(ssn),
-      txStation,
-      rxStation,
-      mode,
-      requiredReliabilityPct: reliability,
-      // Both paths are always computed; the switch above the results picks one.
-      longPath: false,
-    };
+  const predict = useCallback(async () => {
+    if (!request || !request.txPosition.trim() || !request.rxPosition.trim()) return;
     setRun({ kind: "running" });
     try {
       const result = await invoke<PathOverview>("predict_overview", { request });
-      setRun({ kind: "done", result });
-      setTab((current) => (TABS.find((t) => t.id === current)?.needsResult ? current : "bands"));
+      setRun({ kind: "done", result, key: JSON.stringify(request) });
     } catch (error) {
       setRun({ kind: "failed", error: String(error) });
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestKey]);
 
-  if (!options || !txStation || !rxStation) return <main className="app">Loading…</main>;
+  // Reopen with the last path predicted.
+  useEffect(() => {
+    if (autoRan.current || !request || !txPosition.trim() || !rxPosition.trim()) return;
+    autoRan.current = true;
+    predict();
+  }, [request, txPosition, rxPosition, predict]);
+
+  // Keyboard: Ctrl+Enter predicts, Alt+1..9 switch views, [ and ] step the hour.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        predict();
+        return;
+      }
+      if (event.altKey && /^[0-9]$/.test(event.key)) {
+        const index = event.key === "0" ? 9 : Number(event.key) - 1;
+        if (VIEWS[index]) {
+          event.preventDefault();
+          setView(VIEWS[index].id);
+        }
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, select, textarea, [contenteditable]")) return;
+      if (event.key === "[") setClockHour((h) => (h + 23) % 24);
+      if (event.key === "]") setClockHour((h) => (h + 1) % 24);
+      if (event.key === "n") setClockHour(new Date().getUTCHours());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [predict]);
+
+  if (!options || !txStation || !rxStation) {
+    return <div className="empty" style={{ padding: 32 }}>Starting…</div>;
+  }
 
   const overview = run.kind === "done" ? run.result : null;
   const detail = overview && (longPath ? overview.long : overview.short);
@@ -175,377 +329,385 @@ function App() {
   const hourIndex = Math.max(0, hours.findIndex((h) => clockOf(h.utcHour) === clockHour));
   const selectHour = (index: number) => setClockHour(clockOf(hours[index].utcHour));
   const modeLabel = options.modes.find((m) => m.value === mode)?.label ?? mode;
+  const changed = run.kind === "done" && run.key !== requestKey;
   const staleData =
     conditions !== null &&
     (conditions.ssnTable.stale || conditions.products.some((p) => p.stale || !p.stored));
+  const clock = live.listener?.state === "listening" ? live.listener.tracker?.clock : null;
+  const current = VIEWS.find((v) => v.id === view) ?? VIEWS[0];
+  const profiles = [...options.presets, ...userData.stations];
+  const ssnValue = ssn.trim() === "" ? null : Number(ssn);
+
+  const stationSelect = (station: StationProfile, set: (s: StationProfile) => void) => (
+    <select
+      value={profiles.some((p) => p.name === station.name) ? station.name : ""}
+      onChange={(e) => {
+        const picked = profiles.find((p) => p.name === e.target.value);
+        if (picked) set(picked);
+      }}
+    >
+      <option value="" disabled>
+        {station.name} (edited)
+      </option>
+      {profiles.map((p) => (
+        <option key={p.name}>{p.name}</option>
+      ))}
+    </select>
+  );
 
   return (
-    <main className="app">
-      <header className="titlebar">
-        <h1>
-          hf-predict <span className="version">{version}</span>
-        </h1>
-        <UpdateCheck />
-      </header>
-      {loadError && <p className="error">{loadError}</p>}
+    <div className="shell">
+      <StatusBar
+        version={version}
+        detail={detail}
+        longPath={longPath}
+        conditions={conditions}
+        live={live}
+        nowS={nowS}
+        onNavigate={setView}
+        onEditPath={() => fromRef.current?.focus()}
+      >
+        {detail && <BestNow detail={detail} nowClock={nowClock} onOpen={() => setView("compare")} />}
+      </StatusBar>
 
-      <div className="layout">
-        <aside className="sidebar">
-          <form onSubmit={predict}>
-            <fieldset>
-              <legend>Path</legend>
-              <label>
-                From (locator or latitude, longitude)
-                <input
-                  required
-                  list="saved-locations"
-                  placeholder="EM73tr"
-                  value={txPosition}
-                  onChange={(e) => setTxPosition(e.target.value)}
-                />
-              </label>
-              <label>
-                To
-                <input
-                  required
-                  list="saved-locations"
-                  placeholder="51.51, -0.13"
-                  value={rxPosition}
-                  onChange={(e) => setRxPosition(e.target.value)}
-                />
-              </label>
-              <datalist id="saved-locations">
-                {userData.locations.map((l) => (
-                  <option key={l.name} value={l.position}>
-                    {l.name}
-                  </option>
-                ))}
-              </datalist>
-              <div className="row">
-                <label>
-                  Year
-                  <input
-                    type="number"
-                    min={1990}
-                    max={2100}
-                    value={year}
-                    onChange={(e) => setYear(Number(e.target.value))}
-                  />
-                </label>
-                <label>
-                  Month
-                  <input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={month}
-                    onChange={(e) => setMonth(Number(e.target.value))}
-                  />
-                </label>
-              </div>
-              <div className="row">
-                <label>
-                  Mode
-                  <select value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
-                    {options.modes.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Reliability (%)
-                  <input
-                    type="number"
-                    min={10}
-                    max={99}
-                    value={reliability}
-                    onChange={(e) => setReliability(Number(e.target.value))}
-                  />
-                </label>
-              </div>
-              <label>
-                Sunspot number (blank = table)
-                <input
-                  type="number"
-                  min={0}
-                  max={300}
-                  step="any"
-                  value={ssn}
-                  onChange={(e) => setSsn(e.target.value)}
-                />
-              </label>
-              <button className="primary" type="submit" disabled={run.kind === "running"}>
-                {run.kind === "running" ? "Predicting…" : "Predict"}
-              </button>
-            </fieldset>
-
-            <StationEditor
-              title="My station (transmits)"
-              station={txStation}
-              options={options}
-              saved={userData.stations}
-              onChange={setTxStation}
-              onSave={saveStation}
-            />
-            <StationEditor
-              title="Other station (receives)"
-              station={rxStation}
-              options={options}
-              saved={userData.stations}
-              onChange={setRxStation}
-              onSave={saveStation}
-            />
-
-            <fieldset>
-              <legend>Saved locations</legend>
-              {userData.locations.length === 0 && <p className="note">None yet.</p>}
-              <ul className="locations">
-                {userData.locations.map((l) => (
-                  <li key={l.name}>
-                    <span>
-                      {l.name} <small>{l.position}</small>
-                    </span>
-                    <button type="button" onClick={() => setTxPosition(l.position)}>
-                      From
-                    </button>
-                    <button type="button" onClick={() => setRxPosition(l.position)}>
-                      To
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        saveUserData({
-                          ...userData,
-                          locations: userData.locations.filter((o) => o.name !== l.name),
-                        })
-                      }
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <div className="row">
-                <input
-                  placeholder="Name"
-                  value={newLocation.name}
-                  onChange={(e) => setNewLocation({ ...newLocation, name: e.target.value })}
-                />
-                <input
-                  placeholder="Locator or lat, lon"
-                  value={newLocation.position}
-                  onChange={(e) => setNewLocation({ ...newLocation, position: e.target.value })}
-                />
-                <button
-                  type="button"
-                  disabled={!newLocation.name.trim() || !newLocation.position.trim()}
-                  onClick={addLocation}
-                >
-                  Add
-                </button>
-              </div>
-            </fieldset>
-          </form>
-        </aside>
-
-        <section className="content">
-          {conditions?.storm && (
-            <p className="banner" role="alert">
-              ⚠ {conditions.storm}
-            </p>
-          )}
-          {clock && (clock.level === "warn" || clock.level === "alarm") && (
-            <p className="banner" role="alert">
-              ⚠ This computer's clock looks off
-              {clock.medianDtS !== null && ` by about ${Math.abs(clock.medianDtS).toFixed(1)} s`} (from{" "}
-              {clock.samples} decodes). FT8 needs it within about a second, FT4 and FT2 tighter
-              still; synchronise it, or decoding will suffer.
-            </p>
-          )}
-          {run.kind === "failed" && <p className="error">Prediction failed: {run.error}</p>}
-
-          {detail && (
-            <div className="summary">
-              <h2>
-                {detail.prediction.txLocator} → {detail.prediction.rxLocator}
-              </h2>
-              <p>
-                {detail.prediction.distanceKm.toFixed(0)} km · bearing{" "}
-                {detail.prediction.txBearingDeg.toFixed(0)}° out,{" "}
-                {detail.prediction.rxBearingDeg.toFixed(0)}° back · required SNR{" "}
-                {detail.prediction.requiredSnrDbHz} dB-Hz · sunspot number{" "}
-                {detail.prediction.ssn.value} ({SSN_KIND[detail.prediction.ssn.kind]}
-                {detail.prediction.ssn.tableGenerated &&
-                  `, table of ${detail.prediction.ssn.tableGenerated}`}
-                ) · climatological prediction for the month
-              </p>
+      <div className="body">
+        <nav className="nav" aria-label="Views">
+          {NAV.map((group) => (
+            <div className="nav-group" key={group.group}>
+              <h2>{group.group}</h2>
+              {group.items.map((item) => {
+                const index = VIEWS.indexOf(item);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-current={view === item.id ? "page" : undefined}
+                    title={`Alt+${index === 9 ? 0 : index + 1}`}
+                    onClick={() => setView(item.id)}
+                  >
+                    {item.label}
+                    {item.id === "conditions" && staleData && (
+                      <span className="flag" title="Some data is old or missing">
+                        ◐
+                      </span>
+                    )}
+                    {item.needsPath && !detail && <span className="needs">path</span>}
+                  </button>
+                );
+              })}
             </div>
-          )}
+          ))}
+        </nav>
 
-          <div className="controls">
-            <div className="segmented" role="group" aria-label="Path">
-              <button type="button" aria-pressed={!longPath} onClick={() => setLongPath(false)}>
-                Short path
-              </button>
-              <button type="button" aria-pressed={longPath} onClick={() => setLongPath(true)}>
-                Long path
-              </button>
-            </div>
-            <label className="inline">
-              Hour
-              <select value={clockHour} onChange={(e) => setClockHour(Number(e.target.value))}>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <option key={h} value={h}>
-                    {String(h).padStart(2, "0")} UTC · {localHour(h, zone)} {zone.name}
-                    {h === now.getUTCHours() ? " (now)" : ""}
+        <div className="main">
+          <form
+            className="pathbar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              predict();
+            }}
+          >
+            <label className="loc">
+              From
+              <input
+                ref={fromRef}
+                name="from"
+                list="saved-locations"
+                placeholder="EM73tr"
+                value={txPosition}
+                onChange={(e) => setTxPosition(e.target.value)}
+                aria-label="From: locator or latitude, longitude"
+              />
+            </label>
+            <button
+              type="button"
+              className="quiet swap"
+              title="Swap From and To"
+              aria-label="Swap From and To"
+              onClick={() => {
+                setTxPosition(rxPosition);
+                setRxPosition(txPosition);
+              }}
+            >
+              ⇄
+            </button>
+            <label className="loc">
+              To
+              <input
+                name="to"
+                list="saved-locations"
+                placeholder="IO91wm"
+                value={rxPosition}
+                onChange={(e) => setRxPosition(e.target.value)}
+                aria-label="To: locator or latitude, longitude"
+              />
+            </label>
+            <datalist id="saved-locations">
+              {userData.locations.map((l) => (
+                <option key={l.name} value={l.position}>
+                  {l.name}
+                </option>
+              ))}
+            </datalist>
+            <label>
+              Mode
+              <select value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
+                {options.modes.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
                   </option>
                 ))}
               </select>
             </label>
-          </div>
-
-          <nav className="tabs" role="tablist">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === t.id}
-                onClick={() => setTab(t.id)}
-              >
-                {t.label}
-                {t.id === "conditions" && staleData && (
-                  <span className="dot" title="Some data is stale or missing">
-                    {" "}
-                    ◐
+            <div className="pf">
+              <span>Path</span>
+              <div className="segmented" role="group" aria-label="Short or long path">
+                <button type="button" aria-pressed={!longPath} onClick={() => setLongPath(false)}>
+                  Short
+                </button>
+                <button type="button" aria-pressed={longPath} onClick={() => setLongPath(true)}>
+                  Long
+                </button>
+              </div>
+            </div>
+            <div className="pf">
+              <span>Hour shown</span>
+              <div className="hourstep">
+                <button type="button" aria-label="Previous hour" title="Previous hour ( [ )" onClick={() => setClockHour((clockHour + 23) % 24)}>
+                  ‹
+                </button>
+                <output aria-live="polite">
+                  <span className="num">{String(clockHour).padStart(2, "0")} UTC</span>
+                  <span className="hint">
+                    {localHour(clockHour, zone)} {zone.name}
                   </span>
-                )}
+                </output>
+                <button type="button" aria-label="Next hour" title="Next hour ( ] )" onClick={() => setClockHour((clockHour + 1) % 24)}>
+                  ›
+                </button>
+                <button
+                  type="button"
+                  title="The current hour ( n )"
+                  aria-pressed={clockHour === nowClock}
+                  onClick={() => setClockHour(nowClock)}
+                >
+                  Now
+                </button>
+              </div>
+            </div>
+            <div className="actions">
+              {changed && <span className="changed">Settings changed since the last prediction</span>}
+              {run.kind === "failed" && <span className="error">Prediction failed</span>}
+              <button type="button" className="quiet" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+                {moreOpen ? "Fewer settings" : "More settings"}
               </button>
-            ))}
-          </nav>
+              <button
+                className="primary"
+                type="submit"
+                disabled={run.kind === "running" || !txPosition.trim() || !rxPosition.trim()}
+                title="Ctrl+Enter"
+              >
+                {run.kind === "running" ? "Predicting…" : "Predict"}
+              </button>
+            </div>
+            {moreOpen && (
+              <div className="pathbar-more">
+                <label>
+                  Year
+                  <input type="number" min={1990} max={2100} value={year} onChange={(e) => setYear(Number(e.target.value))} />
+                </label>
+                <label>
+                  Month
+                  <input type="number" min={1} max={12} value={month} onChange={(e) => setMonth(Number(e.target.value))} />
+                </label>
+                <label title="The share of days a path must work to count as reliable">
+                  Required reliability %
+                  <input type="number" min={10} max={99} value={reliability} onChange={(e) => setReliability(Number(e.target.value))} />
+                </label>
+                <label title="Leave blank to use the NOAA smoothed sunspot table">
+                  Sunspot number
+                  <input
+                    type="number"
+                    min={0}
+                    max={300}
+                    step="any"
+                    placeholder="table"
+                    value={ssn}
+                    onChange={(e) => setSsn(e.target.value)}
+                  />
+                </label>
+                <label>
+                  My station
+                  {stationSelect(txStation, setTxStation)}
+                </label>
+                <label>
+                  Other station
+                  {stationSelect(rxStation, setRxStation)}
+                </label>
+                <button type="button" className="quiet" onClick={() => setView("setup")}>
+                  Edit stations and locations
+                </button>
+              </div>
+            )}
+          </form>
 
-          {TABS.find((t) => t.id === tab)?.needsResult && !detail && (
-            <p className="note">Enter a path on the left and press Predict.</p>
+          {conditions?.storm && (
+            <div className="alertline" role="alert">
+              <strong>Geomagnetic storm</strong>
+              <span>{conditions.storm}</span>
+            </div>
+          )}
+          {clock && (clock.level === "warn" || clock.level === "alarm") && (
+            <div className="alertline caution" role="alert">
+              <strong>Clock</strong>
+              <span>
+                This computer's clock looks off
+                {clock.medianDtS !== null && ` by about ${Math.abs(clock.medianDtS).toFixed(1)} s`}, from{" "}
+                {clock.samples} decodes. FT8 needs it within about a second, FT4 and FT2 tighter still.
+                Synchronise it, or decoding will suffer.
+              </span>
+            </div>
+          )}
+          {loadError && (
+            <div className="alertline caution">
+              <strong>Storage</strong>
+              <span>{loadError}</span>
+            </div>
           )}
 
-          {tab === "bands" && detail && other && (
-            <>
-              <BestBands
+          <main className="view" id="view">
+            {current.needsPath && !detail && (
+              <div className="empty">
+                <h2>{current.label} needs a predicted path</h2>
+                {run.kind === "running" && <p>Predicting…</p>}
+                {run.kind === "failed" && <p className="error">The prediction failed: {run.error}</p>}
+                {run.kind !== "running" && (
+                  <p>
+                    Enter your position in From and the other end in To, as a locator such as EM73tr
+                    or as latitude, longitude, then press Predict or Ctrl+Enter.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {view === "field" && detail && (
+              <FieldPanel
                 detail={detail}
-                other={other}
-                otherName={longPath ? "short" : "long"}
                 hourIndex={hourIndex}
+                modeLabel={modeLabel}
+                longPath={longPath}
+                month={month}
                 zone={zone}
+                conditions={conditions}
+                nowClock={nowClock}
               />
-              <PowerTable detail={detail} hourIndex={hourIndex} zone={zone} />
-            </>
-          )}
+            )}
 
-          {tab === "compare" && detail && (
-            <ComparePanel detail={detail} hourIndex={hourIndex} modeLabel={modeLabel} zone={zone} />
-          )}
+            {view === "bands" && detail && other && (
+              <>
+                <BestBands
+                  detail={detail}
+                  other={other}
+                  otherName={longPath ? "short" : "long"}
+                  hourIndex={hourIndex}
+                  zone={zone}
+                  nowClock={nowClock}
+                  modeLabel={modeLabel}
+                  longPath={longPath}
+                />
+                <PowerTable detail={detail} hourIndex={hourIndex} zone={zone} />
+              </>
+            )}
 
-          {tab === "field" && detail && (
-            <FieldPanel
-              detail={detail}
-              hourIndex={hourIndex}
-              modeLabel={modeLabel}
-              longPath={longPath}
-              month={month}
-              zone={zone}
-              conditions={conditions}
-            />
-          )}
-
-          {tab === "day" && detail && (
-            <>
-              <FrequencyChart
-                window={detail.window}
-                bands={detail.prediction.bands}
-                hourIndex={hourIndex}
-                zone={zone}
-              />
-              <HourTable
-                result={detail.prediction}
+            {view === "day" && detail && (
+              <BandLadder
+                detail={detail}
                 hourIndex={hourIndex}
                 onSelectHour={selectHour}
                 zone={zone}
+                nowClock={nowClock}
+                modeLabel={modeLabel}
               />
-            </>
-          )}
+            )}
 
-          {tab === "map" && (
-            <MapPanel
-              txPosition={txPosition}
-              rxPosition={rxPosition}
-              longPath={longPath}
-              year={year}
-              month={month}
-              ssn={ssn.trim() === "" ? null : Number(ssn)}
-              txStation={txStation}
-              rxStation={rxStation}
-              mode={mode}
-              reliability={reliability}
-              bands={options.bands}
-              clockHour={clockHour}
-              zone={zone}
-              onPickTx={setTxPosition}
-              onPickRx={setRxPosition}
-            />
-          )}
+            {view === "compare" && detail && (
+              <ComparePanel detail={detail} hourIndex={hourIndex} modeLabel={modeLabel} zone={zone} />
+            )}
 
-          {tab === "heard" && (
-            <HeardPanel
-              logFiles={userData.logFiles}
-              onLogFilesChange={(logFiles) => saveUserData({ ...userData, logFiles })}
-              defaultRxPosition={txPosition}
-            />
-          )}
+            {view === "map" && (
+              <MapPanel
+                txPosition={txPosition}
+                rxPosition={rxPosition}
+                longPath={longPath}
+                year={year}
+                month={month}
+                ssn={ssnValue}
+                txStation={txStation}
+                rxStation={rxStation}
+                mode={mode}
+                reliability={reliability}
+                bands={options.bands}
+                clockHour={clockHour}
+                zone={zone}
+                onPickTx={setTxPosition}
+                onPickRx={setRxPosition}
+              />
+            )}
 
-          {tab === "plan" && (
-            <PlanPanel
-              txPosition={txPosition}
-              rxPosition={rxPosition}
-              year={year}
-              month={month}
-              ssn={ssn.trim() === "" ? null : Number(ssn)}
-              txStation={txStation}
-              rxStation={rxStation}
-              clockHour={clockHour}
-              zone={zone}
-            />
-          )}
+            {view === "heard" && (
+              <HeardPanel
+                logFiles={userData.logFiles}
+                onLogFilesChange={(logFiles) => saveUserData({ ...userData, logFiles })}
+                defaultRxPosition={txPosition}
+              />
+            )}
 
-          {tab === "radio" && <RadioPanel />}
+            {view === "plan" && (
+              <PlanPanel
+                txPosition={txPosition}
+                rxPosition={rxPosition}
+                year={year}
+                month={month}
+                ssn={ssnValue}
+                txStation={txStation}
+                rxStation={rxStation}
+                clockHour={clockHour}
+                zone={zone}
+              />
+            )}
 
-          {tab === "history" && (
-            <HistoryPanel rxPosition={txPosition} noiseDb={txStation?.noiseDb ?? null} />
-          )}
+            {view === "radio" && <RadioPanel />}
 
-          {tab === "conditions" &&
-            (conditions ? (
-              <ConditionsPanel conditions={conditions} onUpdate={setConditions} />
-            ) : (
-              <p className="note">Conditions could not be loaded.</p>
-            ))}
+            {view === "history" && <HistoryPanel rxPosition={txPosition} noiseDb={txStation.noiseDb} />}
 
-          {tab === "engine" && detail && (
-            <section>
-              <p className="note">
-                {detail.prediction.run.prediction.engine} via {detail.prediction.engine}. Antennas
-                are assumed to be aimed along the path.
-              </p>
-              <h3>Input deck</h3>
-              <pre>{detail.prediction.run.input}</pre>
-              <h3>Output</h3>
-              <pre>{detail.prediction.run.output}</pre>
-            </section>
-          )}
-        </section>
+            {view === "conditions" &&
+              (conditions ? (
+                <ConditionsPanel conditions={conditions} onUpdate={setConditions} ssn={detail?.prediction.ssn ?? null} />
+              ) : (
+                <p className="note">Conditions could not be loaded.</p>
+              ))}
+
+            {view === "setup" && (
+              <SetupPanel
+                options={options}
+                userData={userData}
+                onUserData={saveUserData}
+                txStation={txStation}
+                rxStation={rxStation}
+                onTxStation={setTxStation}
+                onRxStation={setRxStation}
+                onUseLocation={(position, end) => (end === "from" ? setTxPosition(position) : setRxPosition(position))}
+                theme={theme}
+                onTheme={setTheme}
+                version={version}
+              />
+            )}
+
+            {view === "engine" && detail && <EnginePanel detail={detail} />}
+          </main>
+        </div>
       </div>
-    </main>
+    </div>
   );
 }
 

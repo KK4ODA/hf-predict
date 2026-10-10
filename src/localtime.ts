@@ -31,9 +31,9 @@ export function localHour(clock: number, zone: Zone): string {
   return two(Math.floor(minutes / 60)) + (rest === 0 ? "" : `:${two(rest)}`);
 }
 
-/** "13 UTC · 09 EDT" */
+/** "13 UTC (09 EDT)" */
 export function hourBoth(clock: number, zone: Zone): string {
-  return `${two(clock)} UTC · ${localHour(clock, zone)} ${zone.name}`;
+  return `${two(clock)} UTC (${localHour(clock, zone)} ${zone.name})`;
 }
 
 /** "09:31:15" in local time. */
@@ -43,18 +43,18 @@ export function localClock(unixSeconds: number, withSeconds = true): string {
   return parts.map(two).join(":");
 }
 
-/** "09:31 UTC · 05:31 EDT" */
+/** "09:31 UTC (05:31 EDT)" */
 export function clockBoth(unixSeconds: number): string {
   const utc = new Date(unixSeconds * 1000).toISOString().slice(11, 16);
-  return `${utc} UTC · ${localClock(unixSeconds, false)} ${zoneAt(new Date(unixSeconds * 1000)).name}`;
+  return `${utc} UTC (${localClock(unixSeconds, false)} ${zoneAt(new Date(unixSeconds * 1000)).name})`;
 }
 
-/** "2026-10-04 19:58 UTC · 15:58 EDT", with the local date too when it differs. */
+/** "2026-10-04 19:58 UTC (15:58 EDT)", with the local date too when it differs. */
 export function stampBoth(unixSeconds: number): string {
   const d = new Date(unixSeconds * 1000);
   const iso = d.toISOString();
   const utcDate = iso.slice(0, 10);
   const localDate = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
   const localDay = localDate === utcDate ? "" : `${localDate} `;
-  return `${utcDate} ${iso.slice(11, 16)} UTC · ${localDay}${localClock(unixSeconds, false)} ${zoneAt(d).name}`;
+  return `${utcDate} ${iso.slice(11, 16)} UTC (${localDay}${localClock(unixSeconds, false)} ${zoneAt(d).name})`;
 }

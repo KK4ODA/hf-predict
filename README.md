@@ -8,6 +8,8 @@ Offline-first HF propagation prediction and measurement for amateur radio, for W
 
 The application stays useful with little or no Internet: portable operation, Field Day, EmComm and disaster response. It never transmits; there is no transmit function anywhere in it.
 
+![Through the day: every band against every hour, shaded by predicted reliability, with the MUF, FOT and LUF threaded through the bands](docs/screenshots/day.png)
+
 ## Status
 
 All ten phases of the [roadmap](docs/engineering-assessment.md#18-implementation-roadmap) are in, as of v0.10.2 (October 2026). Installers for Windows, macOS and Linux are on the [Releases](https://github.com/KK4ODA/hf-predict/releases) page and the app updates itself from there. Builds are not code-signed yet, so Windows and macOS warn on install.
@@ -28,7 +30,19 @@ All ten phases of the [roadmap](docs/engineering-assessment.md#18-implementation
 | **Conditions** | Solar flux, A and K indices, storm state, three-day and 27-day forecasts, with source and age; fetched from NOAA, or requested over Winlink and imported from files or pasted text. The smoothed sunspot table the model uses, bundled and refreshable. |
 | **Engine** | The exact input and output of the engine run behind the prediction. |
 
-Every hour and time is shown in UTC and local time. Warnings for a geomagnetic storm and for a computer clock that is off appear on every screen.
+A status strip across the top shows the path, the time in UTC and local time, solar flux and indices, the receiver, the radio and the best band now, on every screen; warnings for a geomagnetic storm and for a computer clock that is off appear beneath it. Dark and Daylight themes; keyboard shortcuts (Ctrl+Enter predicts, Alt+1 to Alt+0 switch views, [ and ] step the hour). The design is described, with before and after screenshots, in [docs/design-system.md](docs/design-system.md).
+
+### Screenshots
+
+Taken with a real FT8 prediction from the engine (EM73tr to IO91wm, October) and recorded decodes.
+
+| | |
+|---|---|
+| ![Field](docs/screenshots/field.png) **Field**: the bands to try now, their good hours, conditions and data age | ![Compare](docs/screenshots/compare.png) **Compare**: the model (blue) beside what was heard toward the destination (amber) |
+| ![Best bands](docs/screenshots/bands.png) **Best bands**: every band ranked for the hour, with a 24-hour strip each | ![Map](docs/screenshots/map.png) **Map**: predicted coverage, stations heard, path, day and night |
+| ![Heard](docs/screenshots/heard.png) **Heard**: what WSJT-X decoded, by band and station | ![Plan](docs/screenshots/plan.png) **Plan**: a listening plan to follow by hand, or a receive-only scan |
+| ![History](docs/screenshots/history.png) **History**: how often places were heard against what the model predicted | ![Conditions](docs/screenshots/conditions.png) **Conditions**: solar and geomagnetic readings with source and age |
+| ![Radio](docs/screenshots/radio.png) **Radio**: the radio through a shared `rigctld` | ![Daylight](docs/screenshots/bands-daylight.png) **Daylight** theme for outdoor use |
 
 ## Getting started
 

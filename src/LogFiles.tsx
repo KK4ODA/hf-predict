@@ -70,7 +70,7 @@ export function LogFiles({ files, onChange, defaultRxPosition }: Props) {
 
   return (
     <>
-      <h3>WSJT-X logs</h3>
+      <h3 style={{ marginTop: 22 }}>WSJT-X logs</h3>
       <p className="note">
         Each WSJT-X installation keeps its own ALL.TXT log of everything it decoded. Add the ones
         you have, old and new. They are read when the app starts and when you press Check now, new
@@ -96,8 +96,8 @@ export function LogFiles({ files, onChange, defaultRxPosition }: Props) {
           <ul className="found-logs">
             {notAdded.map((f) => (
               <li key={f.path}>
-                <strong>{f.program}</strong> · <span className="mono">{f.path}</span> · {size(f.sizeBytes)}
-                {f.modifiedUtc !== null && ` · last written ${stampBoth(f.modifiedUtc)}`}{" "}
+                <strong>{f.program}</strong> <span className="mono">{f.path}</span> <span className="hint">{size(f.sizeBytes)}
+                {f.modifiedUtc !== null && `, last written ${stampBoth(f.modifiedUtc)}`}</span>{" "}
                 <button type="button" onClick={() => add(f.path)} disabled={busy}>
                   Add
                 </button>
@@ -139,7 +139,7 @@ export function LogFiles({ files, onChange, defaultRxPosition }: Props) {
                       />
                     </td>
                     <td className={`left${c && !c.ok ? " error" : ""}`}>
-                      {c ? `${c.detail} · ${stampBoth(c.checkedUtc)}` : "not checked yet"}
+                      {c ? `${c.detail}, ${stampBoth(c.checkedUtc)}` : "not checked yet"}
                     </td>
                     <td>
                       <button type="button" onClick={() => onChange(files.filter((o) => o.path !== f.path))}>

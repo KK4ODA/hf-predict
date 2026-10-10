@@ -17,7 +17,7 @@ export function StationEditor({ title, station, options, saved, onChange, onSave
   const set = (change: Partial<StationProfile>) => onChange({ ...station, ...change });
 
   return (
-    <fieldset>
+    <fieldset className="panel">
       <legend>{title}</legend>
       <label>
         Start from
@@ -29,7 +29,7 @@ export function StationEditor({ title, station, options, saved, onChange, onSave
           }}
         >
           <option value="" disabled>
-            Custom
+            {station.name} (edited)
           </option>
           <optgroup label="Presets">
             {options.presets.map((p) => (
@@ -45,16 +45,29 @@ export function StationEditor({ title, station, options, saved, onChange, onSave
           )}
         </select>
       </label>
-      <label>
-        Power (W)
-        <input
-          type="number"
-          min={0.1}
-          step="any"
-          value={station.powerWatts}
-          onChange={(e) => set({ powerWatts: Number(e.target.value) })}
-        />
-      </label>
+      <div className="row">
+        <label>
+          Power, W
+          <input
+            type="number"
+            min={0.1}
+            step="any"
+            value={station.powerWatts}
+            onChange={(e) => set({ powerWatts: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          Lowest take-off angle, °
+          <input
+            type="number"
+            min={0.1}
+            max={40}
+            step={0.1}
+            value={station.minAngleDeg}
+            onChange={(e) => set({ minAngleDeg: Number(e.target.value) })}
+          />
+        </label>
+      </div>
       <label>
         Antenna
         <select value={station.antenna} onChange={(e) => set({ antenna: e.target.value })}>
@@ -75,23 +88,8 @@ export function StationEditor({ title, station, options, saved, onChange, onSave
           ))}
         </select>
       </label>
-      <label>
-        Minimum take-off angle (°)
-        <input
-          type="number"
-          min={0.1}
-          max={40}
-          step={0.1}
-          value={station.minAngleDeg}
-          onChange={(e) => set({ minAngleDeg: Number(e.target.value) })}
-        />
-      </label>
       <div className="row">
-        <input
-          placeholder="Name to save as"
-          value={saveName}
-          onChange={(e) => setSaveName(e.target.value)}
-        />
+        <input placeholder="Name to save as" value={saveName} onChange={(e) => setSaveName(e.target.value)} />
         <button
           type="button"
           disabled={!saveName.trim()}

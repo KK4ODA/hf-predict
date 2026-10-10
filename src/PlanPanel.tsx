@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { hourBoth, localClock, Zone } from "./localtime";
 import { ListenerStatus, Plan, ScanStatus, StationProfile } from "./types";
+import { Health, Pill } from "./ui";
 
 type Props = {
   txPosition: string;
@@ -167,8 +168,22 @@ export function PlanPanel(props: Props) {
   const next = plan && current ? plan.items[plan.items.indexOf(current) + 1] ?? null : null;
   const finished = plan && elapsed !== null && elapsed >= plan.minutes * 60;
 
+  const scanHealth: Health =
+    scan?.state === "running" ? "busy" : scan?.state === "paused" ? "warn" : scan?.state === "failed" ? "alert" : "off";
+  const scanLabel = {
+    running: "Scanning",
+    paused: "Paused",
+    failed: "Stopped by a fault",
+    stopped: "Stopped",
+    idle: "Not scanning",
+  }[scan?.state ?? "idle"];
+
   return (
     <section>
+      <div className="view-head">
+        <h2>Listening plan</h2>
+        <span className="hint">Which bands to listen on, in what order and for how long</span>
+      </div>
       <div className="controls">
         <label className="inline">
           <input type="checkbox" checked={aiming} disabled={rxPosition.trim() === ""} onChange={(e) => setAim(e.target.checked)} />
@@ -206,6 +221,8 @@ export function PlanPanel(props: Props) {
       {error && <p className="error">{error}</p>}
       {txPosition.trim() === "" && <p className="note">Enter your position in the From field first.</p>}
 
+      <div className="plan-layout">
+      <div className="plan-main">
       {plan === null && !busy && (
         <p className="note">
           A listening plan says which bands to listen on, in what order and for how long, so that
@@ -219,7 +236,10 @@ export function PlanPanel(props: Props) {
 
       {plan && (
         <>
-          <h3>Bands to tick in WSJT-X band hopping</h3>
+          <div className="section-title">
+            <h3>Listen by hand</h3>
+          </div>
+          <p className="hint">Bands to tick in WSJT-X band hopping, best first</p>
           <p>
             {plan.hopBands.map((band, i) => (
               <span key={band}>
@@ -253,7 +273,7 @@ export function PlanPanel(props: Props) {
               Now <strong>{current.band}</strong> ({mhz(current.dialHz)} MHz), {mmss(current.startS + current.dwellS - (elapsed ?? 0))} left
               {next && (
                 <>
-                  {" "}· then {next.band} ({mhz(next.dialHz)} MHz)
+                  , then {next.band} ({mhz(next.dialHz)} MHz)
                 </>
               )}
               <br />
@@ -334,8 +354,13 @@ export function PlanPanel(props: Props) {
         </>
       )}
 
-      <h3>Let the app move the radio</h3>
-      <article className="card">
+      </div>
+      <aside className="plan-scan">
+      <div className="section-title">
+        <h3>Scan automatically, receive only</h3>
+        <Pill state={scanHealth}>{scanLabel}</Pill>
+      </div>
+      <article className="panel">
         {scanError && <p className="error">{scanError}</p>}
         {scan && scanning ? (
           <>
@@ -343,7 +368,7 @@ export function PlanPanel(props: Props) {
               {scan.current ? (
                 <>
                   On <strong>{scan.current.band}</strong> ({mhz(scan.current.dialHz)} MHz)
-                  {scan.next && ` · then ${scan.next.band}`}
+                  {scan.next && `, then ${scan.next.band}`}
                 </>
               ) : (
                 "Starting…"
@@ -353,7 +378,7 @@ export function PlanPanel(props: Props) {
             <p className="hint">
               {scan.retunes} retunes
               {scan.plansRun > 0 && `, ${scan.plansRun} plans renewed`}
-              {scan.saved && ` · will go back to ${mhz(scan.saved.freqHz)} MHz`}
+              {scan.saved && `; the radio goes back to ${mhz(scan.saved.freqHz)} MHz when the scan stops`}
             </p>
             <button type="button" className="stop" onClick={stopScan}>
               STOP SCAN
@@ -372,7 +397,7 @@ export function PlanPanel(props: Props) {
               ) : (
                 blockers.map((reason) => (
                   <li key={reason} className="bad">
-                    ✗ {reason}
+                    ✗ {reason.charAt(0).toUpperCase() + reason.slice(1)}
                   </li>
                 ))
               )}
@@ -406,6 +431,8 @@ export function PlanPanel(props: Props) {
           last used frequency" off.
         </p>
       </article>
+      </aside>
+      </div>
     </section>
   );
 }
