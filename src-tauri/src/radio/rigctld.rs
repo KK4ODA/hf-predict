@@ -1,7 +1,8 @@
 //! A client for Hamlib's `rigctld`, using its extended response protocol
 //! (commands prefixed with `+`), so that every reply ends in an `RPRT` line
-//! and can be framed and checked. This client only ever sends `get`
-//! commands.
+//! and can be framed and checked. Besides reads, this client sends exactly
+//! one kind of command: setting the frequency. It cannot key the
+//! transmitter or change the mode.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -37,9 +38,13 @@ impl Rigctld {
     /// fields of its reply.
     pub fn query(&mut self, command: &str) -> Result<Vec<(String, String)>, String> {
         debug_assert!(command.starts_with("get_") || command == "dump_state");
+        self.send(command, &format!("+\\{command}\n"))
+    }
+
+    fn send(&mut self, command: &str, line: &str) -> Result<Vec<(String, String)>, String> {
         self.reader
             .get_mut()
-            .write_all(format!("+\\{command}\n").as_bytes())
+            .write_all(line.as_bytes())
             .map_err(|e| format!("rigctld: cannot send {command}: {e}"))?;
         let mut lines = Vec::new();
         loop {
@@ -104,6 +109,10 @@ fn field<'a>(fields: &'a [(String, String)], key: &str) -> Option<&'a str> {
 impl RadioController for Rigctld {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn set_freq(&mut self, hz: u64) -> Result<(), String> {
+        self.send("set_freq", &format!("+\\set_freq {hz}\n")).map(|_| ())
     }
 
     fn read(&mut self) -> Result<RadioState, String> {

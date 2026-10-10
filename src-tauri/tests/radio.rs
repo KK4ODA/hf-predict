@@ -24,13 +24,14 @@ impl FakeRigctld {
         let port = listener.local_addr().unwrap().port();
         let commands = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
+        let freq = Arc::new(Mutex::new(freq_reply.to_string()));
         let (recorded, stopping) = (commands.clone(), stop.clone());
         std::thread::spawn(move || {
             while !stopping.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let (recorded, stopping) = (recorded.clone(), stopping.clone());
-                        std::thread::spawn(move || serve(stream, recorded, stopping, freq_reply));
+                        let (recorded, stopping, freq) = (recorded.clone(), stopping.clone(), freq.clone());
+                        std::thread::spawn(move || serve(stream, recorded, stopping, freq));
                     }
                     Err(_) => std::thread::sleep(Duration::from_millis(20)),
                 }
@@ -50,7 +51,7 @@ impl Drop for FakeRigctld {
     }
 }
 
-fn serve(stream: TcpStream, recorded: Arc<Mutex<Vec<String>>>, stop: Arc<AtomicBool>, freq_reply: &str) {
+fn serve(stream: TcpStream, recorded: Arc<Mutex<Vec<String>>>, stop: Arc<AtomicBool>, freq: Arc<Mutex<String>>) {
     // On Windows an accepted socket inherits the listener's non-blocking mode.
     stream.set_nonblocking(false).unwrap();
     let mut writer = stream.try_clone().unwrap();
@@ -61,8 +62,17 @@ fn serve(stream: TcpStream, recorded: Arc<Mutex<Vec<String>>>, stop: Arc<AtomicB
         }
         let Ok(line) = line else { return };
         recorded.lock().unwrap().push(line.clone());
+        if let Some(hz) = line.strip_prefix("+\\set_freq ") {
+            let reply = format!("set_freq: {hz}\nRPRT 0\n");
+            *freq.lock().unwrap() = format!("get_freq:\nFrequency: {hz}\nRPRT 0\n");
+            if writer.write_all(reply.as_bytes()).is_err() {
+                return;
+            }
+            continue;
+        }
+        let current = freq.lock().unwrap().clone();
         let reply = match line.as_str() {
-            "+\\get_freq" => freq_reply,
+            "+\\get_freq" => current.as_str(),
             "+\\get_mode" => "get_mode:\nMode: USB\nPassband: 3000\nRPRT 0\n",
             "+\\get_ptt" => "get_ptt:\nPTT: 0\nRPRT 0\n",
             "+\\get_split_vfo" => "get_split_vfo:\nSplit: 0\nTX VFO: VFOA\nRPRT 0\n",
@@ -168,4 +178,19 @@ fn the_app_can_start_rigctld_itself() {
     assert!(daemon.running);
     assert!(daemon.command.contains(" -m 1 -T 127.0.0.1 -t "), "{}", daemon.command);
     drop(monitor);
+}
+
+#[test]
+fn the_monitor_sets_the_frequency_on_request_and_reads_it_back() {
+    let server = FakeRigctld::start(FREQ_OK);
+    let config = RadioConfig { enabled: true, host: "127.0.0.1".into(), port: server.port, poll_seconds: 0.5, ..RadioConfig::default() };
+    let monitor = Monitor::start(config);
+    wait_for(&monitor, |s| s.reads >= 1, 5);
+
+    let after = monitor.set_freq(7_074_000).unwrap();
+    assert_eq!((after.freq_hz, after.band.as_str()), (7_074_000, "40 m"));
+    assert_eq!(monitor.status().radio.map(|r| r.freq_hz), Some(7_074_000));
+    let commands = server.commands();
+    assert!(commands.iter().any(|c| c == "+\\set_freq 7074000"), "{commands:?}");
+    assert_eq!(commands.iter().filter(|c| c.starts_with("+\\set_")).count(), 1);
 }
