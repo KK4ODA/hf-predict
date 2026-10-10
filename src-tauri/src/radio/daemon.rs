@@ -547,6 +547,52 @@ pub fn find_wsjtx() -> Vec<FoundProgram> {
         .collect()
 }
 
+/// Whether a program with this file name is running, whoever started it.
+/// Unknown (the process list cannot be read) counts as not running.
+pub fn is_running(program: &str) -> bool {
+    let Some(name) = Path::new(program.trim()).file_name() else {
+        return false;
+    };
+    process_list().is_some_and(|list| names_include(&list, &name.to_string_lossy()))
+}
+
+/// Every running process, one per line.
+fn process_list() -> Option<String> {
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut cmd = Command::new("tasklist");
+        cmd.args(["/FO", "CSV", "/NH"]);
+        cmd
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut cmd = Command::new("ps");
+        cmd.args(["-A", "-o", "comm="]);
+        cmd
+    };
+    quiet(&mut cmd);
+    let out = cmd.stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Whether a process list names `program`. Windows lists `"ws.exe","1234",…`
+/// per line; `ps` lists a name or a path, which Linux cuts to 15 characters.
+pub fn names_include(list: &str, program: &str) -> bool {
+    let stem = |name: &str| {
+        let name = name.trim().to_lowercase();
+        name.strip_suffix(".exe").map(str::to_string).unwrap_or(name)
+    };
+    let wanted = stem(program);
+    if wanted.is_empty() {
+        return false;
+    }
+    list.lines().any(|line| {
+        let first = line.trim().trim_start_matches('"').split('"').next().unwrap_or("");
+        let base = stem(first.rsplit(['/', '\\']).next().unwrap_or(first));
+        !base.is_empty() && (base == wanted || (base.len() == 15 && wanted.starts_with(&base)))
+    })
+}
+
 /// Starts a program on its own, as the operator would from a shortcut: it
 /// is not watched and not stopped when this app closes.
 pub fn launch(program: &str) -> Result<u32, String> {
@@ -566,6 +612,29 @@ pub fn launch(program: &str) -> Result<u32, String> {
 #[cfg(test)]
 mod launch_tests {
     use super::*;
+
+    #[test]
+    fn a_running_program_is_found_by_its_file_name() {
+        let tasklist = "\"System Idle Process\",\"0\",\"Services\",\"0\",\"8 K\"\n\"ws.exe\",\"4242\",\"Console\",\"1\",\"95,312 K\"\n";
+        assert!(names_include(tasklist, "ws.exe"));
+        assert!(names_include(tasklist, "WS.EXE"));
+        assert!(!names_include(tasklist, "wsjtx.exe"));
+        let ps = "/usr/lib/systemd/systemd\n/Applications/wsjtx.app/Contents/MacOS/wsjtx\njt9\n";
+        assert!(names_include(ps, "wsjtx"));
+        assert!(!names_include(ps, "ws"));
+        // Linux cuts names to 15 characters.
+        assert!(names_include("wsjtx-improved-\n", "wsjtx-improved-3.2"));
+        assert!(!names_include(ps, ""));
+    }
+
+    /// `cargo test --lib launch_tests::this_test_runner_is_running -- --ignored`
+    #[test]
+    #[ignore]
+    fn this_test_runner_is_running() {
+        let me = std::env::current_exe().unwrap();
+        assert!(is_running(&me.to_string_lossy()));
+        assert!(!is_running("C:/nowhere/surely-not-running-hfp.exe"));
+    }
 
     /// Prints what this computer has: `cargo test --lib launch_tests::what_is_installed -- --ignored --nocapture`.
     #[test]

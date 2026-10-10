@@ -4,7 +4,7 @@ HF Predict tells you which HF bands should reach a place, and at what hours. It 
 
 The app is receive only. It has no transmit function, and the only things it ever changes on the radio are the frequency and the mode, during a scan you start yourself.
 
-This manual describes version 0.11.4.
+This manual describes version 0.11.6.
 
 ## Contents
 
@@ -59,12 +59,12 @@ The strip shows the readings that matter on every screen. Most of them are butto
 | Receiver | The band and mode WSJT-X is on, *Waiting* when it has gone quiet, or *transmitting* | Heard |
 | Radio | The radio's frequency and mode, or the band being scanned | Radio, or Plan while scanning |
 | Clock | Appears only when the computer's clock looks wrong, with the offset in seconds | Heard |
-| Update | Appears only when a newer version is available | The Updates section of Stations |
+| Update | Appears only when a newer version is available. Its dot pulses until you answer the update notice | The Updates section of Stations |
 | Best now | The band the app recommends on this path at the current hour | Compare |
 
 The dot beside Receiver and Radio is green when all is well, amber while it waits for something, red for an error or a keyed transmitter, blue while scanning, and hollow when the feature is off. When the window is narrow, the strip hides the less important details first.
 
-Two warnings can appear under the path bar, on every view. A red line reports a geomagnetic storm, when the latest WWV bulletin gives a K index of 5 or more. An amber line reports that the computer's clock looks off, worked out from the timing of recent decodes.
+Lines can appear under the path bar, on every view. A red line reports a geomagnetic storm, when the latest WWV bulletin gives a K index of 5 or more. An amber line reports that the computer's clock looks off, worked out from the timing of recent decodes. A grey line announces a new version, with buttons to install it or put it off; see [Updates](#updates).
 
 ### The path bar
 
@@ -335,7 +335,7 @@ The app reads the radio's frequency, mode, transmit state (PTT), split and VFO e
 1. Install Hamlib if you do not have `rigctld`. On some systems WSJT-X comes with a copy called `rigctld-wsjtx`.
 2. On the Radio view, tick *Read the radio through rigctld*. The host `127.0.0.1`, port `4532` and reading every 2 seconds suit most stations.
 3. Tick *Start rigctld for me*. Choose the `rigctld` program (the box suggests the ones it finds), your radio from the list, its serial port and its speed in baud.
-4. If you like, tick *Start WSJT-X once rigctld is up* and choose the WSJT-X program. The app then starts WSJT-X itself, waiting up to 90 seconds for `rigctld` to answer first.
+4. If you like, tick *Start WSJT-X once rigctld is up* and choose the WSJT-X program. The app then starts WSJT-X itself, waiting up to 90 seconds for `rigctld` to answer first. If that program is already running, the app leaves it alone and says so under the setting, since WSJT-X refuses a second copy of itself.
 5. Check *Mode while scanning*, described under [Scanning](#scanning).
 6. Press *Apply*.
 7. In WSJT-X's radio settings, set the rig to *Hamlib NET rigctl* with the network server `127.0.0.1:4532`, and keep the PTT method you used before.
@@ -444,7 +444,12 @@ Choose *Dark* or *Daylight*. Daylight is easier to read outdoors and in bright r
 
 ### Updates
 
-The app looks for a newer release when it starts and every six hours. When there is one, *Update* appears in the status strip. Click it, then press the *Install … and restart* button, which names the new version. A running scan stops and the radio goes back before the update installs, and `rigctld` is left running for the new version to take back. *Check for updates* looks straight away. Updates come from the project's GitHub releases and are signed.
+The app looks for a newer release a few seconds after it starts and every six hours. When there is one, a line under the path bar says so, and *Update* appears in the status strip with a pulsing dot.
+
+- *Install and restart* on that line downloads and installs the update, showing its progress, and restarts the app.
+- *Later* hides the line and stops the pulse until the app next starts. *Update* stays in the status strip, and clicking it opens this section.
+
+A running scan stops and the radio goes back before the update installs, and `rigctld` is left running for the new version to take back. *Check for updates* on this view looks straight away. Updates come from the project's GitHub releases and are signed.
 
 ### About and credits
 
@@ -477,6 +482,8 @@ The ALL.TXT logs stay where WSJT-X keeps them.
 **Start scanning is greyed out.** The checklist above the button names each thing that stands in the way.
 
 **A scan stopped with "the radio is in USB after being set to DATA-U".** The radio did not accept the mode. Check that the radio model chosen on the Radio view is right, or choose USB or *Keep the mode the radio has when the scan starts*.
+
+**WSJT-X was not started.** The line under *Start WSJT-X once rigctld is up* says why. If WSJT-X was already running, the app leaves it alone; if it shows a rig error, press *Retry* in WSJT-X.
 
 **Another program cannot open the radio after HF Predict closed.** You chose *Leave it running* when you quit. Start HF Predict and quit again choosing *Stop rigctld*.
 

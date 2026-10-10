@@ -70,6 +70,7 @@ Both faces are bundled (latin subsets, about 140 kB), so the app looks the same 
 ```
 
 - **Status strip**, always visible: the path, the live clock in UTC and local time, solar flux, A and K with their age, the receiver and the radio as a dot and a word, a clock warning when it applies, and the best band now (the combined recommendation at the current hour). Each readout opens the view behind it. At narrow widths it wraps rather than overlapping.
+- **Alert lines** under the path bar, full width, label at the left and any actions at the right edge: geomagnetic storm (alert red), clock (caution amber), and a pending update (neutral panel, bone *Install and restart* and a quiet *Later*). An update is not data, so it never wears model blue; its status-strip cell is tinted with bone too (v0.11.6).
 - **Navigation** grouped by purpose: Operate (Field, Plan, Radio), Model (Best bands, Through the day, Map), Observe (Heard, Compare, History), Space weather, Setup (Stations, Engine). Views that need a predicted path say so.
 - **Path bar**, always visible: From and To with a swap button, mode, short or long path, an hour stepper showing UTC and local time with Now, and Predict. Year, month, required reliability, sunspot number and the two station presets fold away under *More settings*. A note appears when the settings have changed since the last prediction.
 - The app reopens with the last path, mode, path direction and view, and predicts it straight away.
@@ -131,7 +132,7 @@ Screenshots at 1366 × 768 with a real FT8 prediction from the engine (EM73tr to
 - Ctrl+Enter predicts; Alt+1 … Alt+0 switch views in the order of the navigation; `[` and `]` step the hour, `n` returns to now.
 - Visible bone focus ring on every control; disabled controls fade; buttons say what they do.
 - Live data refreshes without reflowing: rows keep stable keys, readings update in place.
-- Reduced motion is respected; there is no decorative animation.
+- Reduced motion is respected; there is no decorative animation. The one animation is functional: the dot of a pending update pulses in the status strip until the operator answers the notice, and it does not run with reduced motion.
 - Daylight theme for outdoor use, chosen under Stations and remembered.
 
 ## What did not change

@@ -403,12 +403,34 @@ table.wide {
   color: var(--ink-3);
 }
 
+/* An update is not data, so it wears the interaction colour, bone. */
 .sb-update {
-  background: color-mix(in srgb, var(--model) 14%, var(--bg-sunk));
+  background: color-mix(in srgb, var(--ink) 9%, var(--bg-sunk));
 }
 
 .sb-update:hover {
-  background: color-mix(in srgb, var(--model) 24%, var(--bg-sunk));
+  background: color-mix(in srgb, var(--ink) 16%, var(--bg-sunk));
+}
+
+.sb-update .dot.busy {
+  background: var(--ink);
+  box-shadow: none;
+}
+
+/* Until the operator has seen the notice, the dot pulses. It stops after
+   Later or Install, and never runs with reduced motion. */
+.sb-update.attention .dot.busy {
+  animation: hfp-attention 1.6s ease-in-out infinite;
+}
+
+@keyframes hfp-attention {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ink) 55%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ink) 0%, transparent);
+  }
 }
 
 .sb-best {
@@ -620,6 +642,23 @@ table.wide {
 
 .alertline strong {
   white-space: nowrap;
+}
+
+/* The update notice: neutral, with its actions at the right edge. */
+.alertline.notice {
+  align-items: center;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  background: var(--panel-2);
+  border-bottom-color: var(--rule);
+  color: var(--ink);
+}
+
+.alertline .alert-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 /* ------------------------------------------------------------------ */

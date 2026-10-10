@@ -746,6 +746,12 @@ Changes from the proposed order, and why:
 
 **Progress.** Phase 0 shipped in v0.1.0 (2026-10-04); 1 in v0.2.0; 2 in v0.3.0; 3 in v0.4.0; 4 in v0.5.0; 5 in v0.6.0; 6 in v0.7.0; the calibration and History parts of 10 in v0.7.2 and v0.7.3; 7 in v0.8.0; 8 in v0.9.0 and v0.9.1; 9 in v0.10.0 to v0.10.2 (all 2026-10-10). The first on-air trial of Phase 9 was on one radio family (Yaesu FTDX10); the second family in its exit test is still to come. The rest of Phase 10 is not started.
 
+**Next** (set 2026-10-10):
+
+1. **PSK Reporter, as evidence of the transmit direction.** Everything the app measures today is the receive direction: what this station hears. PSK Reporter collects reports of who decoded whom, so it can say who heard *this* station's own transmissions, where, on which band and at what SNR. That is the direct test of the reverse path that section 6's caveat ("hearing them does not mean they hear you") asks for. Sketch: an optional source, off by default and used only when online, that asks PSK Reporter's public retrieval interface for reports of the operator's callsign (taken from WSJT-X's Status message) over the last hour or so; stores them apart from the station's own decodes, with their own provider name; and feeds a "heard you" column on Compare, the transmit-direction check in History, and the reach estimate on Most contacts. It must respect the service's published query limits and terms, which are to be read before building it, and the app must work exactly as before without it. It only has something to say while the operator transmits; the app itself never does.
+2. **Reports to nearby stations, as evidence of the transmit direction without the Internet** (v0.12.0): when a distant station sends a signal report to a station near this one, the report says how well the distant station hears this area.
+3. **Most contacts** (v0.13.0): rank bands by the number of active stations a signal should reach, for operators who want many contacts rather than one place.
+
 ---
 
 ## 19. Decisions and open items
@@ -757,7 +763,7 @@ Changes from the proposed order, and why:
 3. **UI stack: Tauri 2.**
 4. **Sunspot scale default:** current published (new-scale) values, as VOACAP Online does, with an advanced setting (section 4).
 5. **First test radio: Yaesu FTDX10.** Its Hamlib backend is expected to be the Yaesu one that issues a band-select on band changes (unverified), so rule 3 in section 10 applies directly. Verified on 2026-10-10: across the first scan's band changes the mode stayed DATA-U and STOP SCAN returned the radio to its band.
-6. **PSK Reporter and other external observation sources: not now** (2026-10-10). The measurement side is the station's own receiver.
+6. **PSK Reporter and other external observation sources:** set aside at first (2026-10-10), then put next on the roadmap the same day. The station's own receiver stays the main measurement; see *Next* in section 18.
 7. **Start order:** WSJT-X only looks for `rigctld` when it starts, so the app that starts the daemon must come first; the app can start WSJT-X itself (2026-10-10).
 
 **To obtain**
