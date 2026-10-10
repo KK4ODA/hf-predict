@@ -56,6 +56,11 @@ cp "$STAGE/engine/bin/voacapl$EXE" "$OUT/bin/"
 cp -R "$STAGE/engine/share/voacapl/itshfbc" "$OUT/itshfbc"
 # hf-predict's own antenna definitions, used by the station presets.
 cp -R "$ROOT/engines/voacapl/antennas/hfp" "$OUT/itshfbc/antennas/hfp"
+# The NTIA/ITS disclaimer, the CC0 terms of the port and its authors travel
+# with the engine.
+cp "$SRC/LICENSE" "$OUT/LICENSE-voacapl.txt"
+cp "$SRC/AUTHORS" "$OUT/AUTHORS-voacapl.txt"
+cp "$ROOT/engines/voacapl/NOTICE-NTIA.txt" "$OUT/NOTICE-NTIA.txt"
 
 echo "Runtime libraries the engine still loads:"
 case "$(uname -s)" in

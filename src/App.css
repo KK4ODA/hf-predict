@@ -815,6 +815,11 @@ fieldset label {
   margin-top: 12px;
 }
 
+.grid-2 > .panel + .panel,
+.field-side > .panel {
+  margin-top: 0;
+}
+
 .panel-head {
   display: flex;
   align-items: baseline;
@@ -901,7 +906,10 @@ table.data thead th {
   background: var(--panel);
 }
 
-table tbody th {
+table tbody th,
+table.results tbody th,
+table.bands tbody th,
+table.data tbody th {
   font-weight: 500;
   text-align: left;
 }
@@ -2016,6 +2024,25 @@ pre.output {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.credits {
+  max-width: 82ch;
+  gap: 6px 16px;
+}
+
+.credits dt {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.credits dd {
+  color: var(--ink-2);
+}
+
+h4 {
+  font-size: 13px;
+  margin: 12px 0 4px;
 }
 
 .shortcuts {

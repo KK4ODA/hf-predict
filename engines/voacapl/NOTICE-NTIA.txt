@@ -1,0 +1,5 @@
+The following notice accompanies the VOACAP software on the NTIA/ITS web site,
+https://its.ntia.gov/software/high-frequency/voacap-propagation-model/ ,
+and is reproduced here exactly, as its terms require:
+
+Disclaimer: The downloads made available through links on this page contain software developed by NTIA. NTIA does not make any warranty of any kind, express, implied or statutory, including, without limitation, the implied warranty of merchantability, fitness for a particular purpose, non-infringement and data accuracy. NTIA does not warrant or make any representations regarding the use of the software or the results thereof, including but not limited to the correctness, accuracy, reliability or usefulness of the software or the results. You can use, copy, modify, and redistribute the NTIA-developed software upon your acceptance of these terms and conditions and upon your express agreement to provide appropriate acknowledgments of NTIA's ownership of and development of the software by keeping this exact text present in any copied or derivative works.
