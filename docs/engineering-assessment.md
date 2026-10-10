@@ -256,6 +256,8 @@ Checked against the WSJT-X source at release 3.0.2 (June 2026) and 3.2.0-rc1.
 
 Types 16–18 exist in newer releases (annotation, inhibit); we ignore them.
 
+Checked against live WSJT-X traffic on 2026-10-10: the message text in a Decode message is padded to the width of the decode window and may end in decoder notes, `?` for a low-confidence decode and `a1`–`a9` for the a-priori type used (for example `CQ W5RBD EL16                         a1`). A parser that treats the last token as the locator loses every CQ decoded with a-priori information; ours strips the notes first. Hashed callsigns keep their angle brackets (`<LU8VLW/V> W7ZR DM26`).
+
 ### What is and is not available
 
 | Wanted | Available? |
@@ -302,7 +304,7 @@ GridTracker2 (BSD-3-Clause, Electron, active) is the reference for this pattern:
 
 We adopt the same model. WSJT-X decodes. Our app listens, stores, analyses, maps and compares with prediction. This avoids duplicating a mature decoder and carries no licence obligation.
 
-**Second passive source.** WSJT-X's `ALL.TXT` log includes date, time, dial frequency (to 1 kHz), SNR, DT, DF and message. It serves as an import format for history, and as a fallback where UDP is blocked.
+**Second passive source.** WSJT-X's `ALL.TXT` log includes date, time, dial frequency (to 1 kHz), SNR, DT, DF and message. It serves as an import format for history, and as a fallback where UDP is blocked. Checked 2026-10-10 against a real 55,229-line log spanning December 2025 to September 2026: every line parsed, 90% of received decodes carried or recalled a locator, and the only messages without a sender were unresolved hashed calls (`K0RAR <...> +05`), free text and contest exchanges. The same decode arriving over UDP and from the log is stored once.
 
 ---
 

@@ -118,7 +118,10 @@ impl GridMemory {
     /// Builds the observation for a decode and stores it. Returns false if
     /// the same decode was already stored.
     pub fn store(&mut self, heard: &Heard) -> Result<bool, String> {
-        let text = ft8text::parse(heard.message);
+        // One space between words, so the same decode from WSJT-X's UDP
+        // messages and from ALL.TXT, which pad differently, is stored once.
+        let message = heard.message.split_whitespace().collect::<Vec<_>>().join(" ");
+        let text = ft8text::parse(&message);
         let (grid, grid_source) = match (&text.grid, &text.from) {
             (Some(grid), Some(from)) => {
                 self.known.insert(from.clone(), grid.clone());
@@ -143,7 +146,7 @@ impl GridMemory {
             snr_db: heard.snr_db,
             dt_s: heard.dt_s,
             mode: heard.mode.to_string(),
-            message: heard.message.to_string(),
+            message,
             kind: text.kind.as_str().to_string(),
             sender: text.from,
             addressee: text.to,

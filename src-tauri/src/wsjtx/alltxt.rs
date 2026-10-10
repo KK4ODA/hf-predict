@@ -2,7 +2,9 @@
 //! dial frequency, so history can be loaded without the program running.
 //!
 //! Lines look like
-//! `241004_153015    14.074 Rx FT8    -12  0.3 1234 CQ K1ABC FN42`.
+//! `241004_153015    14.074 Rx FT8    -12  0.3 1234 CQ K1ABC FN42`,
+//! sometimes with decoder notes after the message (`?`, `a1`), which the
+//! message parser ignores.
 
 use std::sync::Arc;
 
@@ -141,6 +143,35 @@ this line is something else
         let last = &all[3];
         assert_eq!(last.time_utc, timeutil::from_utc(2024, 10, 4, 23, 59) + 45);
         assert_eq!((last.band.as_str(), last.mode.as_str(), last.dt_s), ("40 m", "FT4", -0.1));
+    }
+
+    #[test]
+    fn a_decode_already_received_over_udp_is_not_stored_again() {
+        let db = Arc::new(Database::in_memory().unwrap());
+        let mut grids = GridMemory::new(db.clone());
+        // WSJT-X pads the message and appends the AP type in UDP messages too.
+        grids
+            .store(&Heard {
+                time_utc: timeutil::from_utc(2024, 10, 4, 15, 30),
+                dial_hz: 14_074_000,
+                mode: "FT8",
+                df_hz: 1234,
+                snr_db: -12,
+                dt_s: 0.3,
+                message: "CQ K1ABC FN42                         a1",
+                rx_grid: None,
+                provider: "wsjtx-udp",
+                low_confidence: false,
+                settling: false,
+            })
+            .unwrap();
+        let line = "241004_153000    14.074 Rx FT8    -12  0.3 1234 CQ K1ABC FN42                         a1\n";
+        let summary = import(&db, line, None).unwrap();
+        assert_eq!((summary.stored, summary.already_stored), (0, 1));
+        let stored = db.all().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!((stored[0].message.as_str(), stored[0].kind.as_str()), ("CQ K1ABC FN42 a1", "cq"));
+        assert_eq!(stored[0].grid.as_deref(), Some("FN42"));
     }
 
     #[test]
