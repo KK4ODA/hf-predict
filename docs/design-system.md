@@ -75,6 +75,17 @@ Both faces are bundled (latin subsets, about 140 kB), so the app looks the same 
 - The app reopens with the last path, mode, path direction and view, and predicts it straight away.
 - Content is left aligned; only the view scrolls.
 
+### Window sizes
+
+Checked at 1024 × 700, 1280 × 720, 1366 × 768, 1600 × 900 and 1920 × 1080 (v0.11.2):
+
+- The status strip is always one row. As the window narrows it drops detail in a fixed order: the distance, bearing and data-age notes first (below 1540 px), then the version and path kind (below 1300 px), then local time (below 1100 px). The path itself truncates last.
+- The path bar is one row from about 1240 px; below that it breaks deliberately, places on the first line and the hour stepper with the actions on the second. A prediction made with older settings shows Update with a caution dot instead of a sentence.
+- Every text field, menu and button is 30 px high, so mixed rows line up.
+- Views stop at 1280 px wide (the band ladder and map at 1560 px), and panels and large tables span that width, so right edges agree.
+- Table cells never wrap mid-value: SNR and its margin are two deliberate lines, and the propagation-mode column steps aside below 1300 px.
+- Settings are grouped forms with labels above aligned fields (Radio, Heard), not wrapping rows of inline labels.
+
 ## Views
 
 - **Field** — the three bands to try at the hour shown, in large figures, each with the recommendation, the model for the operator's mode and for FT8, how much was heard that way, a 24-hour strip and the good hours in UTC and local time; beside them the map and a list of data ages. Two columns down to 980 px.

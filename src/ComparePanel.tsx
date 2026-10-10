@@ -91,7 +91,7 @@ export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
       </div>
 
       <div className="scroll-x">
-        <table className="data compare">
+        <table className="data compare wide">
           <thead>
             <tr>
               <th className="left">Band</th>

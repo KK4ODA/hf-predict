@@ -134,7 +134,7 @@ export function MapPanel(props: Props) {
   }
 
   return (
-    <section>
+    <section className="full">
       <div className="view-head">
         <h2>Map</h2>
         <span className="hint">Day and night at {hourBoth(clockHour, zone)}, mid-month</span>

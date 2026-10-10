@@ -92,7 +92,7 @@ export function BestBands({ detail, other, otherName, hourIndex, zone, nowClock,
       </p>
 
       <div className="scroll-x">
-        <table className="bands">
+        <table className="bands wide">
           <thead>
             <tr>
               <th className="left">Band</th>
@@ -101,7 +101,7 @@ export function BestBands({ detail, other, otherName, hourIndex, zone, nowClock,
               <th>SNR</th>
               <th className="left">Through the day, UTC</th>
               <th className="left">Worth trying</th>
-              <th>Mode, angle</th>
+              <th className="opt-col">Mode, angle</th>
             </tr>
           </thead>
           <tbody>
@@ -142,7 +142,7 @@ export function BestBands({ detail, other, otherName, hourIndex, zone, nowClock,
                       </div>
                     )}
                   </td>
-                  <td className="hint">
+                  <td className="hint opt-col">
                     {f.mode} {f.takeoffAngleDeg.toFixed(0)}°
                   </td>
                 </tr>

@@ -149,96 +149,103 @@ export function HeardPanel({ logFiles, onLogFilesChange, defaultRxPosition }: Pr
       </div>
       {error && <p className="error">{error}</p>}
 
-      <div className="panel">
-        <div className="listener">
-          <Pill state={listening}>
-            {status.state === "failed"
-              ? "Cannot listen"
-              : status.state === "off"
-                ? "Not listening"
-                : tracker?.decoders.length
-                  ? "Receiving"
-                  : "Waiting for WSJT-X"}
-          </Pill>
+      <div className="panel listener-panel">
+        <div className="listener-state">
+          <div className="section-title">
+            <Pill state={listening}>
+              {status.state === "failed"
+                ? "Cannot listen"
+                : status.state === "off"
+                  ? "Not listening"
+                  : tracker?.decoders.length
+                    ? "Receiving"
+                    : "Waiting for WSJT-X"}
+            </Pill>
+            <span className="hint">
+              {status.state === "listening"
+                ? `${status.datagrams} messages${status.notUnderstood > 0 ? `, ${status.notUnderstood} not from WSJT-X` : ""}`
+                : status.detail}
+            </span>
+          </div>
+          {status.lastError && <p className="error">Last problem: {status.lastError}</p>}
+          {status.state === "listening" && tracker && (
+            <>
+              {tracker.decoders.map((d) => (
+                <div key={d.id} className="decoder">
+                  <strong>
+                    {d.id} {d.version}
+                  </strong>
+                  {d.dialHz !== null && (
+                    <span>
+                      <span className="figure">{(d.dialHz / 1e6).toFixed(3)}</span> MHz {d.band} {d.mode}
+                    </span>
+                  )}
+                  {d.deCall && (
+                    <span>
+                      {d.deCall} {d.deGrid ?? ""}
+                    </span>
+                  )}
+                  {d.transmitting && <Pill state="alert">Transmitting</Pill>}
+                  <span className="hint">last message {d.secondsSinceHeard} s ago</span>
+                </div>
+              ))}
+              {tracker.decoders.length === 0 && (
+                <p className="note">No decoder heard yet. Check that WSJT-X is running and set up as below.</p>
+              )}
+              <p className={`note clock-${tracker.clock.level}`} style={{ marginBottom: 0 }}>
+                Clock check:{" "}
+                {tracker.clock.medianDtS !== null &&
+                  `median time offset ${tracker.clock.medianDtS > 0 ? "+" : ""}${tracker.clock.medianDtS.toFixed(1)} s over ${tracker.clock.samples} decodes. `}
+                {CLOCK[tracker.clock.level]}
+              </p>
+            </>
+          )}
+          <details>
+            <summary>Setting up WSJT-X</summary>
+            <ol style={{ maxWidth: "80ch", paddingLeft: 18 }}>
+              <li>
+                In WSJT-X open File, Settings, Reporting. Under UDP Server set the address to{" "}
+                <code>224.0.0.1</code> and the port to <code>2237</code>, and tick the loopback interface
+                under Outgoing interfaces.
+              </li>
+              <li>Enter the same address and port here, tick Listen for WSJT-X and press Apply.</li>
+              <li>Set GridTracker, JTAlert and other programs to the same address. Every program in the group receives everything.</li>
+            </ol>
+            <p className="note">
+              An address from 224 to 239 is a multicast group, which programs share. An ordinary address
+              such as 127.0.0.1 can be received by one program only: use it only if nothing else listens
+              on that port, or point this app at a port another program forwards to (GridTracker
+              forwards to 2238).
+            </p>
+          </details>
+        </div>
+        <div className="listener-settings">
           <label className="inline">
             <input type="checkbox" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
             Listen for WSJT-X
           </label>
-          <label className="inline">
-            Address
-            <input className="short" value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} />
-          </label>
-          <label className="inline">
-            Port
-            <input
-              className="short"
-              type="number"
-              min={1}
-              max={65535}
-              value={draft.port}
-              onChange={(e) => setDraft({ ...draft, port: Number(e.target.value) })}
-            />
-          </label>
-          <button type="button" onClick={apply}>
-            Apply
-          </button>
-          <span className="hint">
-            {status.state === "listening"
-              ? `${status.datagrams} messages${status.notUnderstood > 0 ? `, ${status.notUnderstood} not from WSJT-X` : ""}`
-              : status.detail}
-          </span>
+          <div className="form-grid two">
+            <label>
+              Address
+              <input value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} />
+            </label>
+            <label>
+              Port
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                value={draft.port}
+                onChange={(e) => setDraft({ ...draft, port: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <div className="settings-actions">
+            <button type="button" onClick={apply}>
+              Apply
+            </button>
+          </div>
         </div>
-        {status.lastError && <p className="error">Last problem: {status.lastError}</p>}
-        {status.state === "listening" && tracker && (
-          <>
-            {tracker.decoders.map((d) => (
-              <div key={d.id} className="decoder">
-                <strong>
-                  {d.id} {d.version}
-                </strong>
-                {d.dialHz !== null && (
-                  <span>
-                    <span className="figure">{(d.dialHz / 1e6).toFixed(3)}</span> MHz {d.band} {d.mode}
-                  </span>
-                )}
-                {d.deCall && (
-                  <span>
-                    {d.deCall} {d.deGrid ?? ""}
-                  </span>
-                )}
-                {d.transmitting && <Pill state="alert">Transmitting</Pill>}
-                <span className="hint">last message {d.secondsSinceHeard} s ago</span>
-              </div>
-            ))}
-            {tracker.decoders.length === 0 && (
-              <p className="note">No decoder heard yet. Check that WSJT-X is running and set up as below.</p>
-            )}
-            <p className={`note clock-${tracker.clock.level}`} style={{ marginBottom: 0 }}>
-              Clock check:{" "}
-              {tracker.clock.medianDtS !== null &&
-                `median time offset ${tracker.clock.medianDtS > 0 ? "+" : ""}${tracker.clock.medianDtS.toFixed(1)} s over ${tracker.clock.samples} decodes. `}
-              {CLOCK[tracker.clock.level]}
-            </p>
-          </>
-        )}
-        <details>
-          <summary>Setting up WSJT-X</summary>
-          <ol style={{ maxWidth: "80ch", paddingLeft: 18 }}>
-            <li>
-              In WSJT-X open File, Settings, Reporting. Under UDP Server set the address to{" "}
-              <code>224.0.0.1</code> and the port to <code>2237</code>, and tick the loopback interface
-              under Outgoing interfaces.
-            </li>
-            <li>Enter the same address and port above, tick Listen for WSJT-X and press Apply.</li>
-            <li>Set GridTracker, JTAlert and other programs to the same address. Every program in the group receives everything.</li>
-          </ol>
-          <p className="note">
-            An address from 224 to 239 is a multicast group, which programs share. An ordinary address
-            such as 127.0.0.1 can be received by one program only: use it only if nothing else listens
-            on that port, or point this app at a port another program forwards to (GridTracker
-            forwards to 2238).
-          </p>
-        </details>
       </div>
 
       <div className="section-title" style={{ marginTop: 18 }}>
@@ -258,7 +265,7 @@ export function HeardPanel({ logFiles, onLogFilesChange, defaultRxPosition }: Pr
         <p className="note">Nothing was listened to in this period.</p>
       ) : (
         <div className="scroll-x">
-          <table className="data">
+          <table className="data wide">
             <thead>
               <tr>
                 <th className="left">Band</th>
@@ -267,8 +274,10 @@ export function HeardPanel({ logFiles, onLogFilesChange, defaultRxPosition }: Pr
                 <th>Per period</th>
                 <th>Callsigns</th>
                 <th>Locators</th>
-                <th title="Median and 90th percentile SNR, dB">SNR median, p90</th>
-                <th title="Median and farthest distance, km">Distance median, max</th>
+                <th title="Median SNR of the decodes, dB">Median SNR</th>
+                <th title="90% of decodes were at or below this SNR, dB">90% below</th>
+                <th>Median km</th>
+                <th>Farthest km</th>
                 <th>Over 3000 km</th>
                 <th>Direction</th>
               </tr>
@@ -293,12 +302,10 @@ export function HeardPanel({ logFiles, onLogFilesChange, defaultRxPosition }: Pr
                     )}
                   </td>
                   <td className="num">{a.uniqueGrids}</td>
-                  <td className="num">
-                    {db(a.medianSnrDb)} <span className="hint">{db(a.p90SnrDb)}</span>
-                  </td>
-                  <td className="num">
-                    {km(a.medianDistanceKm)} <span className="hint">{km(a.maxDistanceKm)}</span>
-                  </td>
+                  <td className="num">{db(a.medianSnrDb)}</td>
+                  <td className="num">{db(a.p90SnrDb)}</td>
+                  <td className="num">{km(a.medianDistanceKm)}</td>
+                  <td className="num">{km(a.maxDistanceKm)}</td>
                   <td className="num">{a.longDistanceStations}</td>
                   <td>
                     <Rose sectors={a.sectors} />
@@ -342,7 +349,7 @@ export function HeardPanel({ logFiles, onLogFilesChange, defaultRxPosition }: Pr
         <p className="note">None stored yet. Turn on listening above, or add a WSJT-X log below.</p>
       ) : (
         <div className="scroll tall">
-          <table className="data decodes">
+          <table className="data decodes wide">
             <thead>
               <tr>
                 {sortHeader("time", "UTC")}
