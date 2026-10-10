@@ -4,7 +4,7 @@ HF Predict tells you which HF bands should reach a place, and at what hours. It 
 
 The app is receive only. It has no transmit function, and the only things it ever changes on the radio are the frequency and the mode, during a scan you start yourself.
 
-This manual describes version 0.11.6.
+This manual describes version 0.11.7.
 
 ## Contents
 
