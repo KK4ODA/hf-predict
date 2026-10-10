@@ -407,3 +407,27 @@ export type Plan = {
   cycleS: number;
   items: PlanItem[];
 };
+
+export type RadioConfig = { enabled: boolean; host: string; port: number; pollSeconds: number };
+
+export type RadioState = {
+  freqHz: number;
+  band: string;
+  mode: string;
+  passbandHz: number | null;
+  ptt: boolean;
+  split: boolean | null;
+  vfo: string | null;
+  txVfo: string | null;
+};
+
+export type RadioStatus = {
+  config: RadioConfig;
+  state: "off" | "connecting" | "connected" | "failed";
+  detail: string;
+  radio: RadioState | null;
+  readUtc: number | null;
+  reads: number;
+  errors: number;
+  lastError: string | null;
+};

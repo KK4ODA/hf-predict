@@ -9,6 +9,7 @@ import { FrequencyChart } from "./FrequencyChart";
 import { HeardPanel } from "./HeardPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { PlanPanel } from "./PlanPanel";
+import { RadioPanel } from "./RadioPanel";
 import { HourTable } from "./HourTable";
 import { MapPanel } from "./MapPanel";
 import { PowerTable } from "./PowerTable";
@@ -36,7 +37,7 @@ type RunState =
   | { kind: "done"; result: PathOverview }
   | { kind: "failed"; error: string };
 
-type Tab = "bands" | "compare" | "field" | "day" | "map" | "heard" | "plan" | "history" | "conditions" | "engine";
+type Tab = "bands" | "compare" | "field" | "day" | "map" | "heard" | "plan" | "radio" | "history" | "conditions" | "engine";
 
 const CLOCK_POLL_MS = 15000;
 
@@ -48,6 +49,7 @@ const TABS: { id: Tab; label: string; needsResult: boolean }[] = [
   { id: "map", label: "Map", needsResult: false },
   { id: "heard", label: "Heard", needsResult: false },
   { id: "plan", label: "Plan", needsResult: false },
+  { id: "radio", label: "Radio", needsResult: false },
   { id: "history", label: "History", needsResult: false },
   { id: "conditions", label: "Conditions", needsResult: false },
   { id: "engine", label: "Engine", needsResult: true },
@@ -515,6 +517,8 @@ function App() {
               zone={zone}
             />
           )}
+
+          {tab === "radio" && <RadioPanel />}
 
           {tab === "history" && (
             <HistoryPanel rxPosition={txPosition} noiseDb={txStation?.noiseDb ?? null} />

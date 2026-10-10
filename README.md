@@ -21,6 +21,7 @@ Working now:
 - A bundled NOAA smoothed sunspot table, so no network is needed. A newer one is downloaded when there is a network.
 - Solar and geophysical conditions (flux, A and K indices, storm state, three-day and 27-day forecasts) with source and age. They can be fetched from NOAA, or requested over Winlink and imported from files or pasted text.
 - A listening plan: which bands to listen on, in what order and for how long, from the prediction, what was heard in the last hour and how long each band has gone unsampled; bands to tick in WSJT-X's band hopping, and a schedule to follow by hand. Nothing transmits or moves the radio.
+- Reads the radio's frequency, mode, PTT, split and VFO through a `rigctld` shared with WSJT-X, and checks that both see the same dial. The app has no transmit function and does not change the radio in this version.
 - Passive reception of WSJT-X decodes over the network (shared with GridTracker and JTAlert through a multicast group), stored locally with per-band activity and a clock check; the ALL.TXT logs of any number of WSJT-X installations are read in place, new lines only.
 - A comparison of prediction with what has been heard toward the destination, a per-band recommendation, and a simplified Field screen.
 - In-app update check.
