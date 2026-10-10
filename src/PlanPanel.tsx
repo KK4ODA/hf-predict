@@ -234,7 +234,8 @@ export function PlanPanel(props: Props) {
           predicts for {aiming ? "the path to the To position" : "the world from your position"} at{" "}
           {hourBoth(clockHour, zone)}, what has been heard in the last hour, and how long each band
           has gone without being listened to. Follow it by hand, tick its bands in WSJT-X's band
-          hopping, or let the app move the radio below. Nothing here transmits.
+          hopping, or let the app move the radio below; a scan always plans for the current hour.
+          Nothing here transmits.
         </p>
       )}
 
@@ -433,9 +434,10 @@ export function PlanPanel(props: Props) {
           retunes only while WSJT-X is receiving with transmit disabled, pauses as soon as you
           enable transmit or the radio keys, reads the radio back after every change and stops if
           the frequency or mode is not what it asked for or split comes on, and puts the radio
-          back where it was, frequency and mode, whenever it stops. Make a plan first; the scan follows a fresh plan made from
-          the same settings. WSJT-X must be on <em>Hamlib NET rigctl</em> with "Monitor returns to
-          last used frequency" off.
+          back where it was, frequency and mode, whenever it stops. The scan makes its own plans
+          from the settings above, for the current UTC hour whatever the hour shown, and each new
+          plan for the hour it begins in. WSJT-X must be on <em>Hamlib NET rigctl</em> with
+          "Monitor returns to last used frequency" off.
         </p>
       </article>
       </aside>
