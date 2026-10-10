@@ -51,6 +51,8 @@ pub struct DecoderStatus {
     pub de_call: Option<String>,
     pub de_grid: Option<String>,
     pub transmitting: bool,
+    /// The operator has enabled transmit: a station is being worked.
+    pub tx_enabled: bool,
     pub seconds_since_heard: i64,
 }
 
@@ -329,6 +331,7 @@ impl Tracker {
                     de_call: status.and_then(|s| s.de_call.clone()),
                     de_grid: status.and_then(|s| s.de_grid.clone()),
                     transmitting: status.is_some_and(|s| s.transmitting),
+                    tx_enabled: status.is_some_and(|s| s.tx_enabled),
                     seconds_since_heard: now - session.last_seen,
                 }
             })

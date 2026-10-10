@@ -9,6 +9,7 @@ pub mod predictor;
 pub mod propagation;
 pub mod radio;
 pub mod scan;
+pub mod scanner;
 pub mod solar;
 pub mod spacewx;
 pub mod station;
@@ -111,7 +112,11 @@ struct PlanQuery {
 /// the last hour, and how long each band has gone unsampled.
 #[tauri::command(async)]
 fn listen_plan(app: tauri::AppHandle, query: PlanQuery) -> Result<scan::Plan, String> {
-    let engine = engine(&app)?;
+    make_plan(&app, &query)
+}
+
+fn make_plan(app: &tauri::AppHandle, query: &PlanQuery) -> Result<scan::Plan, String> {
+    let engine = engine(app)?;
     let db = app.state::<AppState>().db()?.clone();
     let now = timeutil::now();
     let voacap_hour = if query.clock_hour == 0 { 24 } else { query.clock_hour };
@@ -183,6 +188,79 @@ fn listen_plan(app: tauri::AppHandle, query: PlanQuery) -> Result<scan::Plan, St
         })
         .collect();
     Ok(scan::plan(&inputs, query.minutes))
+}
+
+fn wsjtx_state(app: &tauri::AppHandle) -> scanner::WsjtxState {
+    let status = app.state::<AppState>().status();
+    match status.tracker.as_ref().and_then(|t| t.decoders.first()) {
+        Some(d) => scanner::WsjtxState {
+            reporting: d.seconds_since_heard <= scanner::REPORTING_WITHIN_S,
+            tx_enabled: d.tx_enabled,
+            transmitting: d.transmitting,
+        },
+        None => scanner::WsjtxState::default(),
+    }
+}
+
+/// Why a scan could not start right now; empty when it could.
+#[tauri::command]
+fn scan_preflight(app: tauri::AppHandle, confirmed: bool) -> Vec<String> {
+    let radio = app.state::<AppState>().radio_status().radio;
+    scanner::preflight(radio.as_ref(), wsjtx_state(&app), confirmed)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScanRequest {
+    plan: PlanQuery,
+    /// The operator confirmed the antenna system is safe to retune on receive.
+    confirmed: bool,
+    /// Make a new plan when one runs its course.
+    keep_going: bool,
+}
+
+/// Starts moving the radio through a fresh plan. Refuses unless every rule holds.
+#[tauri::command(async)]
+fn scan_start(app: tauri::AppHandle, request: ScanRequest) -> Result<scanner::ScanStatus, String> {
+    let plan = make_plan(&app, &request.plan)?;
+    let state = app.state::<AppState>();
+    let monitor = state
+        .radio
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .ok_or("the radio is not connected")?;
+    let wsjtx = {
+        let app = app.clone();
+        Box::new(move || wsjtx_state(&app))
+    };
+    let replan = request.keep_going.then(|| {
+        let app = app.clone();
+        let query = request.plan;
+        Box::new(move || make_plan(&app, &query)) as Box<dyn Fn() -> Result<scan::Plan, String> + Send>
+    });
+    let runner = scanner::Runner::start(plan, monitor, wsjtx, request.confirmed, replan)?;
+    let status = runner.status();
+    *state.scan.lock().unwrap_or_else(PoisonError::into_inner) = Some(runner);
+    Ok(status)
+}
+
+/// Stops the scan; the radio is put back on the scanner's thread.
+#[tauri::command]
+fn scan_stop(state: tauri::State<AppState>) -> scanner::ScanStatus {
+    let scan = state.scan.lock().unwrap_or_else(PoisonError::into_inner);
+    match scan.as_ref() {
+        Some(runner) => {
+            runner.stop();
+            runner.status()
+        }
+        None => scanner::ScanStatus::idle(),
+    }
+}
+
+#[tauri::command]
+fn scan_status(state: tauri::State<AppState>) -> scanner::ScanStatus {
+    state.scan.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map_or_else(scanner::ScanStatus::idle, |r| r.status())
 }
 
 #[derive(Deserialize)]
@@ -306,7 +384,8 @@ struct AppState {
     /// What the last check of the configured logs found.
     log_checks: Mutex<Vec<LogCheck>>,
     radio_config: Mutex<radio::RadioConfig>,
-    radio: Mutex<Option<radio::Monitor>>,
+    radio: Mutex<Option<Arc<radio::Monitor>>>,
+    scan: Mutex<Option<scanner::Runner>>,
 }
 
 impl AppState {
@@ -442,6 +521,7 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
         log_checks: Mutex::new(Vec::new()),
         radio_config: Mutex::new(radio_config.clone()),
         radio: Mutex::new(None),
+        scan: Mutex::new(None),
     };
     // A database that will not open is reported when the screen asks for data.
     let _ = state.apply(config);
@@ -462,10 +542,12 @@ impl AppState {
 
     /// Stops any radio monitor and starts one for `config` if it is enabled.
     fn apply_radio(&self, config: radio::RadioConfig) {
+        // A running scan cannot outlive the connection it retunes through.
+        *self.scan.lock().unwrap_or_else(PoisonError::into_inner) = None;
         let mut monitor = self.radio.lock().unwrap_or_else(PoisonError::into_inner);
         *monitor = None;
         if config.enabled {
-            *monitor = Some(radio::Monitor::start(config.clone()));
+            *monitor = Some(Arc::new(radio::Monitor::start(config.clone())));
         }
         *self.radio_config.lock().unwrap_or_else(PoisonError::into_inner) = config;
     }
@@ -536,6 +618,10 @@ pub fn run() {
             refresh_conditions,
             calibration_report,
             listen_plan,
+            scan_preflight,
+            scan_start,
+            scan_stop,
+            scan_status,
             radio_status,
             set_radio_config,
             find_rigctld,

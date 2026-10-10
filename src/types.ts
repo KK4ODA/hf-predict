@@ -264,6 +264,7 @@ export type DecoderStatus = {
   deCall: string | null;
   deGrid: string | null;
   transmitting: boolean;
+  txEnabled: boolean;
   secondsSinceHeard: number;
 };
 
@@ -455,4 +456,16 @@ export type RadioStatus = {
   errors: number;
   lastError: string | null;
   daemon: DaemonStatus | null;
+};
+
+export type ScanStatus = {
+  state: "idle" | "running" | "paused" | "stopped" | "failed";
+  detail: string;
+  startedUtc: number | null;
+  current: PlanItem | null;
+  next: PlanItem | null;
+  retunes: number;
+  saved: RadioState | null;
+  restored: boolean;
+  plansRun: number;
 };

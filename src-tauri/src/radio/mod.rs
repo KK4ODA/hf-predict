@@ -1,12 +1,13 @@
-//! Radio control. In this phase the app only reads the radio: frequency,
-//! mode, PTT, split and VFO, through a `rigctld` shared with WSJT-X, which
-//! the app can start itself. The interface has no transmit function, and
-//! nothing here sets anything yet.
+//! Radio control through a `rigctld` shared with WSJT-X, which the app can
+//! start itself. The app reads frequency, mode, PTT, split and VFO, and
+//! can set the frequency, which the scanner alone does. The interface has
+//! no transmit function and cannot change the mode.
 
 pub mod daemon;
 pub mod rigctld;
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -51,6 +52,8 @@ pub trait RadioController: Send {
     fn name(&self) -> &str;
     /// Reads everything the app needs in one go.
     fn read(&mut self) -> Result<RadioState, String>;
+    /// The one thing the app changes on the radio.
+    fn set_freq(&mut self, hz: u64) -> Result<(), String>;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -125,6 +128,15 @@ const RETRY: Duration = Duration::from_secs(5);
 const STOP_CHECK: Duration = Duration::from_millis(100);
 /// Attempts to reach a `rigctld` this app just started, one second apart.
 const STARTUP_ATTEMPTS: u32 = 8;
+/// A retune request older than this is dropped rather than carried out late.
+const REQUEST_TTL: Duration = Duration::from_secs(5);
+
+/// Set the frequency and reply with the state read back.
+struct Request {
+    hz: u64,
+    sent: Instant,
+    reply: Sender<Result<RadioState, String>>,
+}
 
 type Connector = dyn Fn(&RadioConfig) -> Result<Box<dyn RadioController>, String> + Send;
 
@@ -133,6 +145,7 @@ type Connector = dyn Fn(&RadioConfig) -> Result<Box<dyn RadioController>, String
 pub struct Monitor {
     stop: Arc<AtomicBool>,
     status: Arc<Mutex<RadioStatus>>,
+    requests: Sender<Request>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -152,15 +165,29 @@ impl Monitor {
     pub fn start_with(config: RadioConfig, connect: Box<Connector>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(RadioStatus::off(config.clone())));
+        let (requests, inbox) = mpsc::channel();
         let thread = {
             let (stop, status) = (stop.clone(), status.clone());
-            std::thread::spawn(move || run(config, connect, stop, status))
+            std::thread::spawn(move || run(config, connect, inbox, stop, status))
         };
-        Self { stop, status, thread: Some(thread) }
+        Self { stop, status, requests, thread: Some(thread) }
     }
 
     pub fn status(&self) -> RadioStatus {
         self.status.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Sets the frequency on the monitor's own connection and returns what
+    /// the radio reads afterwards. Fails when the radio is not connected.
+    pub fn set_freq(&self, hz: u64) -> Result<RadioState, String> {
+        let (reply, answer) = mpsc::channel();
+        self.requests
+            .send(Request { hz, sent: Instant::now(), reply })
+            .map_err(|_| "the radio monitor has stopped".to_string())?;
+        match answer.recv_timeout(REQUEST_TTL + Duration::from_secs(5)) {
+            Ok(result) => result,
+            Err(_) => Err("the radio is not connected".into()),
+        }
     }
 }
 
@@ -185,7 +212,50 @@ fn pause(stop: &AtomicBool, duration: Duration) -> bool {
     !stop.load(Ordering::Relaxed)
 }
 
-fn run(config: RadioConfig, connect: Box<Connector>, stop: Arc<AtomicBool>, status: Arc<Mutex<RadioStatus>>) {
+/// Waits out the polling interval while serving retune requests on the
+/// connection. False when asked to stop.
+fn serve(
+    radio: &mut dyn RadioController,
+    inbox: &Receiver<Request>,
+    duration: Duration,
+    stop: &AtomicBool,
+    status: &Mutex<RadioStatus>,
+) -> bool {
+    let until = Instant::now() + duration;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return false;
+        }
+        let now = Instant::now();
+        if now >= until {
+            return true;
+        }
+        match inbox.recv_timeout(STOP_CHECK.min(until - now)) {
+            Ok(request) if request.sent.elapsed() > REQUEST_TTL => {
+                let _ = request.reply.send(Err("the retune request waited too long and was dropped".into()));
+            }
+            Ok(request) => {
+                let result = radio.set_freq(request.hz).and_then(|()| radio.read());
+                if let Ok(state) = &result {
+                    let mut s = status.lock().unwrap_or_else(PoisonError::into_inner);
+                    s.radio = Some(state.clone());
+                    s.read_utc = Some(timeutil::now());
+                }
+                let _ = request.reply.send(result);
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => return pause(stop, until.saturating_duration_since(Instant::now())),
+        }
+    }
+}
+
+fn run(
+    config: RadioConfig,
+    connect: Box<Connector>,
+    inbox: Receiver<Request>,
+    stop: Arc<AtomicBool>,
+    status: Arc<Mutex<RadioStatus>>,
+) {
     let update = |f: &dyn Fn(&mut RadioStatus)| f(&mut status.lock().unwrap_or_else(PoisonError::into_inner));
     let fail = |detail: String| {
         update(&|s| {
@@ -296,7 +366,7 @@ fn run(config: RadioConfig, connect: Box<Connector>, stop: Arc<AtomicBool>, stat
                     break;
                 }
             }
-            if !pause(&stop, poll) {
+            if !serve(radio.as_mut(), &inbox, poll, &stop, &status) {
                 return;
             }
         }

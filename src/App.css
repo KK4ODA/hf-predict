@@ -877,3 +877,21 @@ pre.output {
   font-size: 12px;
   white-space: pre-wrap;
 }
+
+button.stop {
+  background: var(--serious);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  padding: 8px 18px;
+}
+
+.checks {
+  margin: 8px 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.checks li.bad {
+  color: var(--serious);
+}

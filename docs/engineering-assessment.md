@@ -386,6 +386,10 @@ WSJT-X must be set to "Hamlib NET rigctl". Before each scan the app checks and r
 7. **Stop is immediate.** A permanent STOP SCAN control, and any CAT error, end the scan and restore state. WSJT-X takes a CAT error as "rig offline", so our client must never leave `rigctld` hung.
 8. **Hardware warning.** Automatic band changes can make external tuners and amplifiers follow. The first-run check asks the operator to confirm the antenna system is safe to retune on receive.
 
+### Phase 9 results (2026-10-10)
+
+Shipped as the scan section of the Plan tab, after the read path was checked against the FTDX10. The `RadioController` gained one set: the frequency; there is still no PTT and no mode set anywhere. The scanner is a pure step function of time and of what the radio and WSJT-X report (`scanner::Scanner::step`), carried out by a runner thread through the radio monitor's own connection, so there is one writer. Rules as above: it refuses to start unless the radio is connected, PTT is off, split is off, WSJT-X is reporting over UDP, WSJT-X's transmit is not enabled and the operator has confirmed the antenna system; it pauses while PTT is on, WSJT-X is transmitting or has transmit enabled, or WSJT-X stops reporting; it stops if split comes on; after every retune it reads back and stops on a frequency or mode mismatch; and whatever ends the scan, including a lost connection or an operator stop, it sets the radio back to the saved frequency and says so. A retune request that waits more than five seconds is dropped rather than carried out late. With "keep going" the scanner makes a fresh plan when one runs its course. Not yet done: timing the retune to the decode cycle (section 11), and the first-run check of "Monitor returns to last used frequency", which cannot be read from WSJT-X.
+
 ---
 
 ## 11. Adaptive prediction-guided scanning

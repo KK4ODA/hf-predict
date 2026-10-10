@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { hourBoth, localClock, Zone } from "./localtime";
-import { ListenerStatus, Plan, StationProfile } from "./types";
+import { ListenerStatus, Plan, ScanStatus, StationProfile } from "./types";
 
 type Props = {
   txPosition: string;
@@ -31,6 +31,7 @@ const OBSERVED_LABEL = {
   notSampled: "not listened to",
 };
 const STATUS_POLL_MS = 5000;
+const SCAN_POLL_MS = 1000;
 
 const mmss = (seconds: number) => {
   const s = Math.max(0, Math.round(seconds));
@@ -45,7 +46,7 @@ const ago = (minutes: number | null) => {
   return `${Math.round(minutes / 1440)} days ago`;
 };
 
-/** Which bands to listen on and when, and help following the plan by hand. */
+/** Which bands to listen on and when; follow by hand, or let the app move the radio. */
 export function PlanPanel(props: Props) {
   const { txPosition, rxPosition, year, month, ssn, txStation, rxStation, clockHour, zone } = props;
   const [minutes, setMinutes] = useState(30);
@@ -58,9 +59,28 @@ export function PlanPanel(props: Props) {
   const [now, setNow] = useState(Date.now());
   const [onBand, setOnBand] = useState<string | null>(null);
 
-  const aiming = aim && rxPosition.trim() !== "";
+  // The radio scan.
+  const [scan, setScan] = useState<ScanStatus | null>(null);
+  const [preflight, setPreflight] = useState<string[] | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [keepGoing, setKeepGoing] = useState(true);
+  const [scanError, setScanError] = useState("");
 
-  // While following: a clock tick, and which band WSJT-X is on.
+  const aiming = aim && rxPosition.trim() !== "";
+  const query = {
+    txPosition,
+    destination: aiming ? rxPosition : null,
+    year,
+    month,
+    ssn,
+    txStation,
+    rxStation,
+    clockHour,
+    minutes,
+    excludedBands: excluded,
+  };
+
+  // While following by hand: a clock tick, and which band WSJT-X is on.
   useEffect(() => {
     if (startedAt === null) return;
     const tick = setInterval(() => setNow(Date.now()), 1000);
@@ -78,27 +98,34 @@ export function PlanPanel(props: Props) {
     };
   }, [startedAt]);
 
+  // The scan's state and whether one could start.
+  useEffect(() => {
+    let active = true;
+    const poll = () =>
+      Promise.all([
+        invoke<ScanStatus>("scan_status"),
+        invoke<string[]>("scan_preflight", { confirmed }),
+      ])
+        .then(([status, reasons]) => {
+          if (!active) return;
+          setScan(status);
+          setPreflight(reasons);
+        })
+        .catch((e) => active && setScanError(String(e)));
+    poll();
+    const timer = setInterval(poll, SCAN_POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [confirmed]);
+
   const make = async () => {
     setBusy(true);
     setError("");
     setStartedAt(null);
     try {
-      setPlan(
-        await invoke<Plan>("listen_plan", {
-          query: {
-            txPosition,
-            destination: aiming ? rxPosition : null,
-            year,
-            month,
-            ssn,
-            txStation,
-            rxStation,
-            clockHour,
-            minutes,
-            excludedBands: excluded,
-          },
-        }),
-      );
+      setPlan(await invoke<Plan>("listen_plan", { query }));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -106,6 +133,27 @@ export function PlanPanel(props: Props) {
     }
   };
 
+  const startScan = async () => {
+    setScanError("");
+    setBusy(true);
+    try {
+      setScan(await invoke<ScanStatus>("scan_start", { request: { plan: query, confirmed, keepGoing } }));
+    } catch (e) {
+      setScanError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stopScan = async () => {
+    try {
+      setScan(await invoke<ScanStatus>("scan_stop"));
+    } catch (e) {
+      setScanError(String(e));
+    }
+  };
+
+  const scanning = scan !== null && (scan.state === "running" || scan.state === "paused");
   const elapsed = startedAt === null ? null : (now - startedAt) / 1000;
   const current =
     plan && elapsed !== null
@@ -159,7 +207,8 @@ export function PlanPanel(props: Props) {
           what you hear covers more than the band WSJT-X happens to be on. It weighs what the model
           predicts for {aiming ? "the path to the To position" : "the world from your position"} at{" "}
           {hourBoth(clockHour, zone)}, what has been heard in the last hour, and how long each band
-          has gone without being listened to. Nothing here transmits or touches the radio.
+          has gone without being listened to. Follow it by hand, tick its bands in WSJT-X's band
+          hopping, or let the app move the radio below. Nothing here transmits.
         </p>
       )}
 
@@ -178,19 +227,19 @@ export function PlanPanel(props: Props) {
           <p className="note">
             WSJT-X hops between the ticked bands on its own rhythm and stops while transmit is
             enabled; it cannot be told how long to stay. The schedule below is for following by
-            hand, or for a later version that moves the radio itself. One pass over every band
-            takes {mmss(plan.cycleS)} and the plan repeats it for {plan.minutes} minutes.
+            hand, or for the app to carry out on the radio. One pass over every band takes{" "}
+            {mmss(plan.cycleS)} and the plan repeats it for {plan.minutes} minutes.
           </p>
 
           <h3>Schedule</h3>
           <div className="controls">
             {startedAt === null ? (
-              <button type="button" onClick={() => { setNow(Date.now()); setStartedAt(Date.now()); }} disabled={plan.items.length === 0}>
-                Start following now
+              <button type="button" onClick={() => { setNow(Date.now()); setStartedAt(Date.now()); }} disabled={plan.items.length === 0 || scanning}>
+                Start following by hand
               </button>
             ) : (
               <button type="button" onClick={() => setStartedAt(null)}>
-                Stop
+                Stop following
               </button>
             )}
           </div>
@@ -279,6 +328,79 @@ export function PlanPanel(props: Props) {
           </p>
         </>
       )}
+
+      <h3>Let the app move the radio</h3>
+      <article className="card">
+        {scanError && <p className="error">{scanError}</p>}
+        {scan && scanning ? (
+          <>
+            <p className="plan-now">
+              {scan.current ? (
+                <>
+                  On <strong>{scan.current.band}</strong> ({mhz(scan.current.dialHz)} MHz)
+                  {scan.next && ` · then ${scan.next.band}`}
+                </>
+              ) : (
+                "Starting…"
+              )}
+            </p>
+            <p className={scan.state === "paused" ? "caution" : undefined}>{scan.detail}</p>
+            <p className="hint">
+              {scan.retunes} retunes
+              {scan.plansRun > 0 && `, ${scan.plansRun} plans renewed`}
+              {scan.saved && ` · will go back to ${mhz(scan.saved.freqHz)} MHz`}
+            </p>
+            <button type="button" className="stop" onClick={stopScan}>
+              STOP SCAN
+            </button>
+          </>
+        ) : (
+          <>
+            {scan && (scan.state === "stopped" || scan.state === "failed") && (
+              <p className={scan.state === "failed" ? "error" : undefined}>{scan.detail}</p>
+            )}
+            <ul className="checks">
+              {preflight === null ? (
+                <li>Checking…</li>
+              ) : preflight.length === 0 ? (
+                <li>✓ Ready: radio connected, split off, WSJT-X reporting with transmit disabled.</li>
+              ) : (
+                preflight.map((reason) => (
+                  <li key={reason} className="bad">
+                    ✗ {reason}
+                  </li>
+                ))
+              )}
+            </ul>
+            <div className="controls">
+              <label className="inline">
+                <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+                My antenna system (tuner, amplifier) is safe to retune on receive
+              </label>
+              <label className="inline">
+                <input type="checkbox" checked={keepGoing} onChange={(e) => setKeepGoing(e.target.checked)} />
+                Make a new plan when this one ends
+              </label>
+              <button
+                type="button"
+                onClick={startScan}
+                disabled={busy || txPosition.trim() === "" || preflight === null || preflight.length > 0}
+              >
+                Start scanning
+              </button>
+            </div>
+          </>
+        )}
+        <p className="note">
+          The app sets the frequency and nothing else: never the mode, never transmit. It retunes
+          only while WSJT-X is receiving with transmit disabled, pauses as soon as you enable
+          transmit or the radio keys, reads the radio back after every change and stops if the
+          mode or frequency is not what it asked for or split comes on, and puts the radio back
+          where it was whenever it stops. Make a plan first; the scan follows a fresh plan made from
+          the same settings. WSJT-X must be on <em>Hamlib NET rigctl</em> with "Monitor returns to
+          last used frequency" off.
+        </p>
+      </article>
     </section>
   );
 }

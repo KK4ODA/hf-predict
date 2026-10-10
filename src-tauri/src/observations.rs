@@ -814,6 +814,7 @@ mod tests {
     #[test]
     fn refuses_a_database_from_a_newer_version() {
         let dir = std::env::temp_dir().join(format!("hfp-db-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("observations.db");
         {
             let db = Database::open(&path).unwrap();
