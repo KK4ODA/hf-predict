@@ -154,6 +154,11 @@ export function PlanPanel(props: Props) {
   };
 
   const scanning = scan !== null && (scan.state === "running" || scan.state === "paused");
+  // Everything that stands in the way of a scan, the From field included.
+  const blockers =
+    preflight === null
+      ? null
+      : [...(txPosition.trim() === "" ? ["enter your position in the From field"] : []), ...preflight];
   const elapsed = startedAt === null ? null : (now - startedAt) / 1000;
   const current =
     plan && elapsed !== null
@@ -360,12 +365,12 @@ export function PlanPanel(props: Props) {
               <p className={scan.state === "failed" ? "error" : undefined}>{scan.detail}</p>
             )}
             <ul className="checks">
-              {preflight === null ? (
+              {blockers === null ? (
                 <li>Checking…</li>
-              ) : preflight.length === 0 ? (
+              ) : blockers.length === 0 ? (
                 <li>✓ Ready: radio connected, split off, WSJT-X reporting with transmit disabled.</li>
               ) : (
-                preflight.map((reason) => (
+                blockers.map((reason) => (
                   <li key={reason} className="bad">
                     ✗ {reason}
                   </li>
@@ -384,7 +389,7 @@ export function PlanPanel(props: Props) {
               <button
                 type="button"
                 onClick={startScan}
-                disabled={busy || txPosition.trim() === "" || preflight === null || preflight.length > 0}
+                disabled={busy || blockers === null || blockers.length > 0}
               >
                 Start scanning
               </button>
