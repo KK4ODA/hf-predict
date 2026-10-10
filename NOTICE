@@ -1,6 +1,56 @@
 hf-predict
 Copyright 2026 The hf-predict contributors
 
+PROPAGATION MODEL
+
+HF Predict runs VOACAP, the Voice of America Coverage Analysis Program, as
+its propagation engine. VOACAP was developed for the Voice of America from
+the 1983 version of IONCAP, the HF model of the Institute for
+Telecommunication Sciences (NTIA/ITS), with work by the Naval Research
+Laboratory. Its theory is due to John Lloyd, George Haydon, Donald Lucas and
+Larry Teters; George Lane steered its development at the Voice of America;
+Franklin Rhoads of NRL made major improvements; Greg Hand of NTIA/ITS designed
+many of its later features and maintained it.
+
+The engine is built from voacapl, the gfortran port of VOACAP by James
+(Jim) Watson, HZ1JW / M0DNS, https://github.com/jawatson/voacapl, without its
+two GPL utilities. The port's changes are released under Creative Commons
+CC0. The full notice from voacapl is in engines/voacapl/LICENSE-voacapl.txt
+and is installed with the engine as LICENSE-voacapl.txt. It reproduces the
+following notice from the VOACAP distribution:
+
+******************************************************************
+Disclaimer:
+
+The software contained within was developed by an agency of the 
+U.S. Government. NTIA/ITS has no objection to the use of this
+software for any purpose since it is not subject to copyright 
+protection in the U.S.
+
+No warranty, expressed or implied, is made by NTIA/ITS or the
+U.S. Government as to the accuracy, suitability and functioning 
+of the program and related material, nor shall the fact of 
+distribution constitute any endorsement by the U.S. Government.
+******************************************************************
+
+The NTIA/ITS web site gives VOACAP the following notice, reproduced exactly
+as its terms require (also in engines/voacapl/NOTICE-NTIA.txt, installed with
+the engine):
+
+Disclaimer: The downloads made available through links on this page contain software developed by NTIA. NTIA does not make any warranty of any kind, express, implied or statutory, including, without limitation, the implied warranty of merchantability, fitness for a particular purpose, non-infringement and data accuracy. NTIA does not warrant or make any representations regarding the use of the software or the results thereof, including but not limited to the correctness, accuracy, reliability or usefulness of the software or the results. You can use, copy, modify, and redistribute the NTIA-developed software upon your acceptance of these terms and conditions and upon your express agreement to provide appropriate acknowledgments of NTIA's ownership of and development of the software by keeping this exact text present in any copied or derivative works.
+
+HF Predict is not affiliated with or endorsed by NTIA/ITS, the Voice of
+America or the U.S. Government.
+
+ACKNOWLEDGEMENT
+
+VOACAP Online, https://www.voacap.com, by Jari Perkiomaki, OH6BG, launched
+with James Watson, HZ1JW, and Juho Juopperi, OH8GLV, has for years made
+VOACAP usable by radio amateurs, and its guides informed choices in this
+project, such as using the current published sunspot numbers. HF Predict
+does not use the VOACAP Online service and is not affiliated with or endorsed
+by it.
+
 This product bundles the following typefaces, each under the SIL Open Font
 License, Version 1.1. The licence texts are shown in the app under Stations,
 Third-party licences.

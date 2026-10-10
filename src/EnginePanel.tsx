@@ -43,6 +43,11 @@ export function EnginePanel({ detail }: { detail: PathDetail }) {
           <dd>{prediction.requiredSnrDbHz} dB-Hz</dd>
           <dt>Antennas</dt>
           <dd>Aimed along the path at both ends</dd>
+          <dt>Made by</dt>
+          <dd>
+            VOACAP, developed by NTIA/ITS for the Voice of America from IONCAP; built from voacapl, the
+            gfortran port by Jim Watson, HZ1JW. Full credits are under Stations.
+          </dd>
           <dt>Kind of prediction</dt>
           <dd>Monthly climatology: the share of days a path works, not a forecast for today</dd>
         </dl>

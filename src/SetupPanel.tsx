@@ -4,6 +4,8 @@ import { UpdateCheck } from "./UpdateCheck";
 import { Options, SavedLocation, StationProfile, UserData } from "./types";
 import atkinsonLicence from "@fontsource/atkinson-hyperlegible-next/LICENSE?raw";
 import barlowLicence from "@fontsource/barlow-semi-condensed/LICENSE?raw";
+import voacaplLicence from "../engines/voacapl/LICENSE-voacapl.txt?raw";
+import ntiaNotice from "../engines/voacapl/NOTICE-NTIA.txt?raw";
 
 export type Theme = "dark" | "light";
 
@@ -144,17 +146,46 @@ export function SetupPanel(props: Props) {
       <p className="note">This is version {version}. Updates come from the project's GitHub releases and are signed.</p>
       <UpdateCheck />
 
-      <h3>About</h3>
+      <h3>About and credits</h3>
+      <p className="note">HF Predict is free software under the Apache License 2.0.</p>
+      <dl className="credits">
+        <dt>VOACAP</dt>
+        <dd>
+          The propagation model behind every prediction. Developed for the Voice of America from IONCAP,
+          the HF model of the Institute for Telecommunication Sciences (NTIA/ITS), with work by the Naval
+          Research Laboratory. Theory by John Lloyd, George Haydon, Donald Lucas and Larry Teters;
+          development steered at the Voice of America by George Lane; major improvements by Franklin
+          Rhoads of NRL; many later features designed, and the code maintained, by Greg Hand of NTIA/ITS.
+        </dd>
+        <dt>voacapl</dt>
+        <dd>
+          The gfortran port of VOACAP by Jim Watson, HZ1JW / M0DNS, which HF Predict builds for Windows,
+          macOS and Linux and runs as its engine. github.com/jawatson/voacapl
+        </dd>
+        <dt>VOACAP Online</dt>
+        <dd>
+          By Jari Perkiömäki, OH6BG, launched with Jim Watson, HZ1JW, and Juho Juopperi, OH8GLV. It has long
+          made VOACAP usable by radio amateurs, and its guides informed choices here, such as using current
+          published sunspot numbers. HF Predict does not use the service. voacap.com
+        </dd>
+        <dt>Also</dt>
+        <dd>
+          The WSJT-X development group, whose published UDP messages HF Predict listens to; Hamlib, for
+          rigctld; NOAA's Space Weather Prediction Center, for solar data; Natural Earth map data; the
+          Atkinson Hyperlegible Next and Barlow typefaces.
+        </dd>
+      </dl>
       <p className="note">
-        HF Predict is free software under the Apache License 2.0. Predictions come from VOACAP, the
-        NTIA/ITS propagation model, run locally.
+        HF Predict is independent: it is not affiliated with or endorsed by NTIA/ITS, the Voice of America,
+        the U.S. Government, VOACAP Online or the WSJT-X development group.
       </p>
       <details>
-        <summary>Third-party licences</summary>
-        <p className="note">
-          The typefaces are Atkinson Hyperlegible Next and Barlow Semi Condensed, both under the SIL
-          Open Font License 1.1.
-        </p>
+        <summary>Notices and licences</summary>
+        <h4>VOACAP, from NTIA/ITS</h4>
+        <pre>{ntiaNotice}</pre>
+        <h4>voacapl</h4>
+        <pre>{voacaplLicence}</pre>
+        <h4>Typefaces, SIL Open Font License 1.1</h4>
         <pre>{atkinsonLicence}</pre>
         <pre>{barlowLicence}</pre>
       </details>

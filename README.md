@@ -28,7 +28,7 @@ All ten phases of the [roadmap](docs/engineering-assessment.md#18-implementation
 | **Radio** | Reads the radio through a `rigctld` shared with WSJT-X: frequency, mode, PTT, split and VFO, and whether WSJT-X sees the same dial. The app can start `rigctld` and WSJT-X itself, in the right order. |
 | **History** | Checks the predictions against every decode you have stored: were places heard more often where the model said they would be? |
 | **Conditions** | Solar flux, A and K indices, storm state, three-day and 27-day forecasts, with source and age; fetched from NOAA, or requested over Winlink and imported from files or pasted text. The smoothed sunspot table the model uses, bundled and refreshable. |
-| **Engine** | The exact input and output of the engine run behind the prediction. |
+| **Engine** | The exact input and output of the VOACAP run behind the prediction, and who made the engine. |
 
 A status strip across the top shows the path, the time in UTC and local time, solar flux and indices, the receiver, the radio and the best band now, on every screen; warnings for a geomagnetic storm and for a computer clock that is off appear beneath it. Dark and Daylight themes; keyboard shortcuts (Ctrl+Enter predicts, Alt+1 to Alt+0 switch views, [ and ] step the hour). The design is described, with before and after screenshots, in [docs/design-system.md](docs/design-system.md).
 
@@ -58,6 +58,16 @@ Taken with a real FT8 prediction from the engine (EM73tr to IO91wm, October) and
 - Predictions are monthly climatology from VOACAP: the share of days a path should work, not a forecast for today. Current conditions are shown so you can judge, and a storm is flagged, but they are not fed into the model.
 - "Nothing heard" is never "band closed": it depends on who is transmitting. Hearing a station shows the band is open that way for FT8; it does not show they can hear you, and your own mode may need 25 dB more.
 - Everything is stored on the computer. Nothing is sent anywhere except the requests you make to NOAA or Winlink.
+
+## Credits
+
+HF Predict stands on the work of others, above all:
+
+- **VOACAP**, the propagation model behind every prediction in the app. It was developed for the Voice of America from IONCAP, the HF model of the Institute for Telecommunication Sciences (NTIA/ITS), with work by the Naval Research Laboratory. Its theory is due to John Lloyd, George Haydon, Donald Lucas and Larry Teters; George Lane steered its development at the Voice of America; Franklin Rhoads of NRL made major improvements; Greg Hand of NTIA/ITS designed many of its later features and maintained it. VOACAP is not subject to copyright in the U.S.; no endorsement by NTIA/ITS or the U.S. Government is implied.
+- **[voacapl](https://github.com/jawatson/voacapl)**, the gfortran port of VOACAP by Jim Watson, HZ1JW / M0DNS. HF Predict builds it for Windows, macOS and Linux and runs it as its engine; without it there would be no VOACAP to run outside Windows. Its changes are released under CC0, and its notice ships with the engine.
+- **[VOACAP Online](https://www.voacap.com)** by Jari Perkiömäki, OH6BG, launched with Jim Watson, HZ1JW, and Juho Juopperi, OH8GLV. For years it has made VOACAP usable by radio amateurs, and its guides informed choices here, such as using current published sunspot numbers. HF Predict does not use the service and is not affiliated with or endorsed by it.
+
+Also: the [WSJT-X](https://wsjt.sourceforge.io/) development group, whose published UDP messages HF Predict listens to; [Hamlib](https://hamlib.github.io/) for `rigctld`; NOAA's Space Weather Prediction Center for solar data; Natural Earth map data through `world-atlas`; and the Atkinson Hyperlegible Next and Barlow typefaces. Full notices are in [NOTICE](NOTICE).
 
 ## Building
 

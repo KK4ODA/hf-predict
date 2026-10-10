@@ -110,8 +110,8 @@ The feasibility notes below are as written before the spike.
 
 | Component | How we use it | Licence | Obligation |
 |---|---|---|---|
-| VOACAP engine source (NTIA/ITS) | Bundle compiled binary and data | Not subject to US copyright; ITS grants use, copy, modify, redistribute | Ship both NTIA notices verbatim; no warranty; do not imply endorsement |
-| `voacapl` changes | Bundle | CC0 | Credit James Watson (courtesy) |
+| VOACAP engine source (NTIA/ITS) | Bundle compiled binary and data | Not subject to US copyright; ITS grants use, copy, modify, redistribute | Ship both NTIA notices verbatim; no warranty; do not imply endorsement. Done in v0.11.1: the distribution disclaimer (in voacapl's LICENSE) and the ITS web-site disclaimer (`engines/voacapl/NOTICE-NTIA.txt`) are installed with the engine and shown in the app |
+| `voacapl` changes | Bundle | CC0 | Credit James Watson (courtesy): done in the README, NOTICE and the app's Engine and Stations views; voacapl's LICENSE and AUTHORS ship with the engine |
 | `dst2csv`, `dst2ascii`, `f90getopt.f90` in `voacapl` | **Leave out** | GPL-3 | Confirmed in Phase 0: `f90getopt.f90` is linked only into the two `dst` utilities, not the engine. The build script removes them. |
 | HFWin32 installer, `SALFLIBC.DLL`, GUI | **Do not redistribute** | Package help says most programs cannot be distributed | Detect a user install only |
 | DVOACAP | Optional bundle | MIT | Include licence text |
