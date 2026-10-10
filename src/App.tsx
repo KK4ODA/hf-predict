@@ -14,6 +14,7 @@ import { PlanPanel } from "./PlanPanel";
 import { PowerTable } from "./PowerTable";
 import { RadioPanel } from "./RadioPanel";
 import { SetupPanel, Theme } from "./SetupPanel";
+import { useUpdater } from "./UpdateCheck";
 import { Live, StatusBar } from "./StatusBar";
 import { useComparison, verdictIcon } from "./comparison";
 import { clockHour as clockOf } from "./tiers";
@@ -213,6 +214,7 @@ function App() {
   const zone = zoneForMonth(year, month);
   const live = useLive();
   const nowS = useNow();
+  const updater = useUpdater();
   const nowClock = new Date(nowS * 1000).getUTCHours();
   const fromRef = useRef<HTMLInputElement>(null);
   const autoRan = useRef(false);
@@ -366,6 +368,11 @@ function App() {
         nowS={nowS}
         onNavigate={setView}
         onEditPath={() => fromRef.current?.focus()}
+        update={updater.state.kind === "available" ? updater.state.update.version : null}
+        onUpdate={() => {
+          setView("setup");
+          setTimeout(() => document.getElementById("updates")?.scrollIntoView({ block: "center" }), 50);
+        }}
       >
         {detail && <BestNow detail={detail} nowClock={nowClock} onOpen={() => setView("compare")} />}
       </StatusBar>
@@ -700,6 +707,7 @@ function App() {
                 theme={theme}
                 onTheme={setTheme}
                 version={version}
+                updater={updater}
               />
             )}
 

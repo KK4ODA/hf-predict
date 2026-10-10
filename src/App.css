@@ -403,6 +403,14 @@ table.wide {
   color: var(--ink-3);
 }
 
+.sb-update {
+  background: color-mix(in srgb, var(--model) 14%, var(--bg-sunk));
+}
+
+.sb-update:hover {
+  background: color-mix(in srgb, var(--model) 24%, var(--bg-sunk));
+}
+
 .sb-best {
   margin-left: auto;
   border-left: 1px solid var(--rule);
