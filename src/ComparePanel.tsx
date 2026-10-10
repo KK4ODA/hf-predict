@@ -3,7 +3,7 @@ import { modeCaution, useComparison, verdictIcon } from "./comparison";
 import { BandComparison, PathDetail } from "./types";
 import { clockHour } from "./tiers";
 import { hourBoth, Zone } from "./localtime";
-import { Evidence, Meter, OBSERVED_WORDS } from "./ui";
+import { Evidence, Meter, OBSERVED_WORDS, Ring, signedDb } from "./ui";
 
 const WINDOWS = [
   { minutes: 15, label: "15 minutes" },
@@ -88,6 +88,9 @@ export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
         <span>
           <span className="swatch hatch" /> Not listened to long enough to tell
         </span>
+        <span>
+          <Ring /> Hears your area: stations that way heard reporting you or a station near you
+        </span>
       </div>
 
       <div className="scroll-x">
@@ -98,7 +101,8 @@ export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
               <th className="left">Recommendation</th>
               <th>Model</th>
               <th className="left">Heard toward the destination</th>
-              <th>On the whole band</th>
+              <th className="left">Hears your area</th>
+              <th className="whole-band">On the whole band</th>
             </tr>
           </thead>
           <tbody>
@@ -137,6 +141,24 @@ export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
                     </div>
                   </td>
                   <td>
+                    <div className="heardcell">
+                      {row.hearingStations > 0 ? (
+                        <>
+                          <span>
+                            <Ring /> {row.hearingStations} {row.hearingStations === 1 ? "station" : "stations"}
+                            {row.hearingYou > 0 && `, ${row.hearingYou} heard you`}
+                          </span>
+                          <span className="examples">
+                            {row.hearingExamples.join("  ")}
+                            {row.hearingBestReportDb !== null && `  best ${signedDb(row.hearingBestReportDb)}`}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="hint">none heard</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="whole-band">
                     {row.periods === 0 ? (
                       <span className="hint">not listened to</span>
                     ) : (
@@ -160,6 +182,12 @@ export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
         within 1,500 km of it, or within 15° of its bearing and at least 60% as far. Under four
         transmit periods of listening counts as not listened to. Three stations is moderate evidence,
         eight is strong.
+      </p>
+      <p className="note">
+        "Hears your area" is the other direction. It counts stations toward the destination that this
+        receiver heard sending a signal report to you, or to a station near you: within 300 km, or for a
+        distant sender up to 15% of its distance and never more than 1,000 km. Their report is how well
+        they hear your part of the world. It sits beside the recommendation and does not change it.
       </p>
       <p className="note">
         Hearing stations that way shows the band is open that way for FT8. It does not show they can

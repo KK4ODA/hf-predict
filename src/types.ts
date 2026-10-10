@@ -131,6 +131,12 @@ export type BandComparison = {
   evidenceStations: number;
   evidenceBestSnrDb: number | null;
   evidenceExamples: string[];
+  /** Stations toward the destination heard reporting this station or one near it. */
+  hearingStations: number;
+  hearingBestReportDb: number | null;
+  hearingExamples: string[];
+  /** How many of them reported this station itself. */
+  hearingYou: number;
   observed: "notSampled" | "none" | "limited" | "moderate" | "strong";
   verdict: { label: string; detail: string; priority: number };
 };
@@ -349,6 +355,30 @@ export type HeardStation = {
   distanceKm: number | null;
   bearingDeg: number | null;
 };
+
+export type ReportedStation = {
+  callsign: string;
+  /** From this receiver; 0 for this station itself. */
+  distanceKm: number;
+  reportDb: number;
+};
+
+/** A distant station heard sending signal reports to this station or to stations near it. */
+export type HearingStation = {
+  callsign: string;
+  grid: string;
+  lat: number;
+  lon: number;
+  band: string;
+  distanceKm: number;
+  bearingDeg: number;
+  bestReportDb: number;
+  reported: ReportedStation[];
+  heardYou: boolean;
+  lastUtc: number;
+};
+
+export type HearingYourArea = { ownCall: string | null; stations: HearingStation[] };
 
 export type ImportSummary = {
   stored: number;

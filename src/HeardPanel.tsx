@@ -2,8 +2,8 @@ import { localClock } from "./localtime";
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LogFiles } from "./LogFiles";
-import { Health, Pill } from "./ui";
-import { BandActivity, ListenerConfig, ListenerStatus, LogFile, Observation } from "./types";
+import { Health, Pill, Ring, signedDb } from "./ui";
+import { BandActivity, HearingYourArea, ListenerConfig, ListenerStatus, LogFile, Observation } from "./types";
 
 const POLL_MS = 3000;
 const RECENT_LIMIT = 200;
@@ -29,6 +29,121 @@ function utcClock(unixSeconds: number): string {
 
 const km = (value: number | null) => (value === null ? "—" : value.toFixed(0));
 const db = (value: number | null) => (value === null ? "—" : value.toFixed(0));
+
+const HEARING_WINDOWS = [
+  { minutes: 60, label: "hour" },
+  { minutes: 360, label: "6 hours" },
+  { minutes: 1440, label: "24 hours" },
+  { minutes: 10080, label: "7 days" },
+];
+
+/** Distant stations heard reporting this station or stations near it. */
+function HearingSection({ receiver }: { receiver: string }) {
+  const [minutes, setMinutes] = useState(1440);
+  const [found, setFound] = useState<HearingYourArea | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let current = true;
+    const poll = () =>
+      invoke<HearingYourArea>("hearing_your_area", { minutes, band: null, receiver })
+        .then((next) => {
+          if (!current) return;
+          setFound(next);
+          setError("");
+        })
+        .catch((e) => current && setError(String(e)));
+    poll();
+    const timer = setInterval(poll, POLL_MS * 5);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, [minutes, receiver]);
+
+  const stations = found?.stations ?? [];
+  return (
+    <>
+      <div className="section-title" style={{ marginTop: 18 }}>
+        <h3>Who hears your area</h3>
+        <label className="inline hint">
+          over the last
+          <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
+            {HEARING_WINDOWS.map((w) => (
+              <option key={w.minutes} value={w.minutes}>
+                {w.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="hint">
+          {stations.length} {stations.length === 1 ? "station" : "stations"}
+        </span>
+      </div>
+      {error && <p className="error">{error}</p>}
+      {stations.length === 0 ? (
+        <p className="note">No distant station was heard reporting you or a station near you in this period.</p>
+      ) : (
+        <div className="scroll tall">
+          <table className="data wide hearing">
+            <thead>
+              <tr>
+                <th>UTC</th>
+                <th>Local</th>
+                <th className="left">Band</th>
+                <th className="left">Station</th>
+                <th className="left">Locator</th>
+                <th>km</th>
+                <th>Bearing</th>
+                <th>Best report</th>
+                <th className="left">Reported</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stations.map((s) => (
+                <tr key={`${s.band} ${s.callsign}`}>
+                  <td className="num">{utcClock(s.lastUtc)}</td>
+                  <td className="num hint">{localClock(s.lastUtc)}</td>
+                  <td className="left">{s.band}</td>
+                  <td className="left">
+                    <Ring /> <span className="msg">{s.callsign}</span>
+                  </td>
+                  <td className="left">{s.grid}</td>
+                  <td className="num">{km(s.distanceKm)}</td>
+                  <td className="num">{s.bearingDeg.toFixed(0)}°</td>
+                  <td className="num">{signedDb(s.bestReportDb)}</td>
+                  <td className="left reported">
+                    {s.reported.map((r, i) => (
+                      <span key={r.callsign}>
+                        {i > 0 && ", "}
+                        {r.distanceKm === 0 ? (
+                          <strong>you {signedDb(r.reportDb)}</strong>
+                        ) : (
+                          <>
+                            {r.callsign} {signedDb(r.reportDb)}
+                            <span className="hint"> {km(r.distanceKm)} km away</span>
+                          </>
+                        )}
+                      </span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="note">
+        The other direction: distant stations this receiver heard sending a signal report to you or to a
+        station near you. A report is how well that station hears your area, which your own receiver
+        cannot measure. "Near" is within 300 km, or for a distant sender up to 15% of its distance and
+        never more than 1,000 km; a nearby station counts only once its locator has been heard.{" "}
+        {found?.ownCall
+          ? `Reports to ${found.ownCall}, the callsign WSJT-X gives, count as hearing you.`
+          : "WSJT-X has not given your callsign yet, so only reports to nearby stations count."}
+      </p>
+    </>
+  );
+}
 
 function duration(seconds: number): string {
   if (seconds < 90) return `${seconds} s`;
@@ -324,6 +439,7 @@ export function HeardPanel({ logFiles, onLogFilesChange, defaultRxPosition }: Pr
         band is closed, and hearing a station does not mean it can hear you.
       </p>
 
+      <HearingSection receiver={defaultRxPosition} />
       <div className="section-title" style={{ marginTop: 18 }}>
         <h3>Latest decodes</h3>
         <select value={bandFilter} onChange={(e) => setBandFilter(e.target.value)} aria-label="Band">

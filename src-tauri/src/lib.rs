@@ -400,6 +400,15 @@ struct AppState {
     rigctld_record: Option<PathBuf>,
     /// What came of starting WSJT-X from this app, for the screen.
     wsjtx_launch: Mutex<Option<String>>,
+    /// The operator's callsign as WSJT-X last gave it, kept between sessions.
+    own_call: Mutex<OwnCall>,
+    own_call_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct OwnCall {
+    callsign: Option<String>,
 }
 
 impl AppState {
@@ -413,6 +422,27 @@ impl AppState {
             Some(listener) => listener.status(),
             None => ListenerStatus::off(config),
         }
+    }
+
+    /// The operator's callsign: from WSJT-X when it is reporting, otherwise
+    /// the one it last gave.
+    fn own_call(&self) -> Option<String> {
+        let live = self
+            .status()
+            .tracker
+            .and_then(|t| t.decoders.iter().find_map(|d| d.de_call.clone()))
+            .map(|c| c.trim().to_uppercase())
+            .filter(|c| !c.is_empty());
+        let mut saved = self.own_call.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(call) = live {
+            if saved.callsign.as_deref() != Some(call.as_str()) {
+                saved.callsign = Some(call);
+                if let Some(file) = &self.own_call_file {
+                    let _ = jsonfile::save(file, &*saved);
+                }
+            }
+        }
+        saved.callsign.clone()
     }
 
     /// Stops any running listener and starts one for `config` if it is enabled.
@@ -468,7 +498,30 @@ fn heard_stations(
 /// Sets a path's per-band predictions beside what has been heard that way.
 #[tauri::command]
 fn compare_path(state: tauri::State<AppState>, query: CompareQuery) -> Result<Vec<BandComparison>, String> {
-    compare::compare(state.db()?, &query, timeutil::now())
+    compare::compare(state.db()?, &query, state.own_call().as_deref(), timeutil::now())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HearingYourArea {
+    /// The operator's callsign, when WSJT-X has ever given it.
+    own_call: Option<String>,
+    stations: Vec<observations::HearingStation>,
+}
+
+/// Distant stations heard reporting this station or stations near it.
+#[tauri::command]
+fn hearing_your_area(
+    state: tauri::State<AppState>,
+    minutes: i64,
+    band: Option<String>,
+    receiver: Option<String>,
+) -> Result<HearingYourArea, String> {
+    let own_call = state.own_call();
+    let receiver = receiver.as_deref().map(str::trim).filter(|r| !r.is_empty()).and_then(|r| geo::parse_position(r).ok());
+    let stations =
+        state.db()?.hearing_your_area(timeutil::now() - minutes * 60, band.as_deref(), own_call.as_deref(), receiver)?;
+    Ok(HearingYourArea { own_call, stations })
 }
 
 /// Logs found in the program folders on this computer.
@@ -538,6 +591,10 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
         scan: Mutex::new(None),
         rigctld_record: local_data_file(app, RIGCTLD_RECORD_FILE).ok(),
         wsjtx_launch: Mutex::new(None),
+        own_call: Mutex::new(
+            local_data_file(app, OWN_CALL_FILE).and_then(|file| jsonfile::load(&file)).unwrap_or_default(),
+        ),
+        own_call_file: local_data_file(app, OWN_CALL_FILE).ok(),
     };
     // A database that will not open is reported when the screen asks for data.
     let _ = state.apply(config);
@@ -547,6 +604,7 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
 
 const RADIO_FILE: &str = "radio.json";
 const RIGCTLD_RECORD_FILE: &str = "rigctld.json";
+const OWN_CALL_FILE: &str = "own-call.json";
 
 /// Set once the operator has chosen how to quit, so the exit that follows
 /// is not asked about again.
@@ -836,6 +894,7 @@ pub fn run() {
             recent_observations,
             band_activity,
             heard_stations,
+            hearing_your_area,
             compare_path,
             find_log_files,
             log_checks,

@@ -6,7 +6,7 @@ import { WindowsText } from "./BestBands";
 import { Conditions, Observation, PathDetail } from "./types";
 import { byClockHour, clockHour, describeWindows } from "./tiers";
 import { hourBoth, Zone } from "./localtime";
-import { age, Evidence, HourStrip, OBSERVED_WORDS, pct } from "./ui";
+import { age, Evidence, HourStrip, OBSERVED_WORDS, pct, Ring, signedDb } from "./ui";
 
 const EVIDENCE_MINUTES = 60;
 const TOP_BANDS = 3;
@@ -117,6 +117,12 @@ export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, zone
                     <Evidence tier={row.observed} /> {OBSERVED_WORDS[row.observed]}
                     {row.evidenceStations > 0 && `, ${row.evidenceStations}`}
                   </span>
+                  {row.hearingStations > 0 && (
+                    <span>
+                      <Ring /> {row.hearingYou > 0 ? `${row.hearingYou} heard you` : `${row.hearingStations} hear your area`}
+                      {row.hearingBestReportDb !== null && `, best ${signedDb(row.hearingBestReportDb)}`}
+                    </span>
+                  )}
                 </div>
                 <div className="facts">
                   <HourStrip byClockHour={values} selected={clock} now={nowClock} label={`${row.band} through the day`} />

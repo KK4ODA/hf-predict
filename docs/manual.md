@@ -4,7 +4,7 @@ HF Predict tells you which HF bands should reach a place, and at what hours. It 
 
 The app is receive only. It has no transmit function, and the only things it ever changes on the radio are the frequency and the mode, during a scan you start yourself.
 
-This manual describes version 0.11.7.
+This manual describes version 0.12.0.
 
 ## Contents
 
@@ -173,8 +173,9 @@ The map does not need a prediction. It shows the path, the night side of the ear
 - **Band** chooses the band for the two layers below. It starts at 20 m.
 - **Show predicted coverage** shades the map with the predicted reliability of reaching a station like your *Other station* from the From position, on that band at the hour shown, with the antennas aimed to within 22.5° of each cell. The shading is cleared when you change the position, the hour, the stations or the mode; press *Recompute coverage* to draw it again.
 - The last list adds a dot for each station decoded on the band in the last 15 minutes, hour, 6 hours or 24 hours, placed at the centre of the locator it sent. Choose *no heard stations* to hide them.
+- *Stations hearing your area* adds an amber ring for each station heard, in the same span, sending a signal report to you or to a station near you. See [Who hears your area](#who-hears-your-area).
 
-The dots show what your receiver heard, which depends on who was transmitting. The shading predicts where a signal from you would be heard.
+The dots show what your receiver heard, which depends on who was transmitting. The rings show who hears your part of the world. A dot inside a ring was heard both ways. The shading predicts where a signal from you would be heard.
 
 ### Engine
 
@@ -210,6 +211,18 @@ The **clock check** under it works out the median time offset (DT) of recent dec
 
 Nothing heard on a band can simply mean nobody was transmitting, and hearing a station does not mean it can hear you.
 
+### Who hears your area
+
+Everything else on Heard is one direction: what your receiver hears. FT8 messages also carry the other direction. When a distant station sends a signal report, such as `N4NB G4AAA -07`, it is saying how well it hears that station. If that station is you, or is near you, the report tells you how well the distant station hears your area.
+
+*Who hears your area* lists the distant stations heard sending such reports over the last hour, 6 hours, 24 hours or 7 days. For each it gives the time of its latest report, the band, its locator, distance and bearing from you, its best report, and whom it reported: *you*, or the nearby stations with how far they are from you.
+
+- A report to your own callsign counts as hearing you. The app takes your callsign from WSJT-X and remembers it, so this works with logs read later too.
+- A report to another station counts when that station is near you: within 300 km, or for a distant sender up to 15% of its distance, and never beyond 1,000 km. Seen from far away, a station a few hundred kilometres from you is in the same direction.
+- A nearby station can only be placed once your receiver has heard it send its locator, at any time and on any band. Stations in your skip zone are often never heard, so their reports are missed.
+
+The reporting station's signal and noise are not yours, and a nearby station may run more power than you. Treat a report as evidence that the path is open in your direction, and its value as a rough guide.
+
 ### Reading WSJT-X logs
 
 Each WSJT-X installation keeps an ALL.TXT log of everything it decoded. If you have used more than one, such as WSJT-X and later WSJT-X improved, each has its own log in its own folder. Add all of them to bring your past decodes into the app.
@@ -232,7 +245,13 @@ Compare sets the model's prediction for each band at the hour shown beside the F
 
 A decoded station counts as toward the destination when it is within 1,500 km of the To position, or within 15° of the path's bearing and at least 60% of the way there. A band needs at least four transmit periods of listening before it counts as listened to. One or two stations heard that way is limited evidence, three is moderate and eight is strong.
 
-The controls choose how far back to look (15 minutes, an hour or 6 hours) and how to order the bands: by recommendation, by the model, or by what was heard. Each row gives the recommendation with a line of explanation, the model's bars, what was heard toward the destination with up to three example callsigns and the best signal, and how many callsigns were heard on the whole band.
+The controls choose how far back to look (15 minutes, an hour or 6 hours) and how to order the bands: by recommendation, by the model, or by what was heard. Each row gives:
+
+- the recommendation, with a line of explanation;
+- the model's bars;
+- what was heard toward the destination, with up to three example callsigns and the best signal;
+- *Hears your area*: how many stations toward the destination were heard reporting you or a station near you, how many of them reported you, example callsigns and the best report;
+- how many callsigns were heard on the whole band. This column is hidden when the window is narrow.
 
 The recommendation comes from a fixed table, so you can always trace it back:
 
@@ -249,11 +268,11 @@ The recommendation comes from a fixed table, so you can always trace it back:
 
 When your mode is SSB or CW and the band looks encouraging for FT8 but poor for your mode, the row adds a caution with the extra signal your mode needs. SSB needs about 25 dB more than FT8.
 
-Hearing stations that way shows the band is open in that direction for FT8. It does not show that they can hear you.
+Hearing stations that way shows the band is open in that direction for FT8. It does not show that they can hear you, because their power and their noise may differ from yours. *Hears your area* is the evidence for the other direction, and it is shown beside the recommendation without changing it. The model's own figure is for your signal reaching the destination.
 
 ### Field
 
-The Field view puts what you need for working a path on one screen, all from data on the computer. It names the three bands to try, best first, each with its recommendation, the model's figure, what was heard toward the destination, a 24-hour strip and its good hours. When no band looks dependable at the hour shown, it says so; step the hour to find a better time.
+The Field view puts what you need for working a path on one screen, all from data on the computer. It names the three bands to try, best first, each with its recommendation, the model's figure, what was heard toward the destination, how many stations that way report hearing your area when there are any, a 24-hour strip and its good hours. When no band looks dependable at the hour shown, it says so; step the hour to find a better time.
 
 Beside the bands are the map and a summary of how old each piece of data is: the solar readings, the sunspot number and table the prediction used, the last decode stored, and the span of listening counted (the last 60 minutes).
 
