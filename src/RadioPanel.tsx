@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { FoundProgram, ListenerStatus, RadioConfig, RadioStatus, RigModel } from "./types";
+import { Health, Pill } from "./ui";
 
 const POLL_MS = 2000;
 const BAUDS = [4800, 9600, 19200, 38400, 57600, 115200];
@@ -93,9 +94,48 @@ export function RadioPanel() {
       : null;
   const chosenModel = models.find((m) => m.number === draft.rigModel);
 
+  const health: Health =
+    status.state === "connected" ? "ok" : status.state === "connecting" ? "warn" : status.state === "failed" ? "alert" : "off";
+  const healthLabel = { connected: "Connected", connecting: "Connecting", failed: "Not connected", off: "Off" }[status.state];
+
   return (
     <section>
+      <div className="view-head">
+        <h2>Radio</h2>
+        <Pill state={health}>{healthLabel}</Pill>
+        <span className="hint">Reads the radio, and sets its frequency only while scanning. It never transmits.</span>
+      </div>
       {error && <p className="error">{error}</p>}
+
+      {radio && status.readUtc !== null && (
+        <div className="panel" style={{ maxWidth: 860, marginBottom: 16 }}>
+          <div className="readout">
+            <span className="freq">
+              {mhz(radio.freqHz)}
+              <small>MHz</small>
+            </span>
+            <span>
+              <span className="band-name">{radio.band}</span> {radio.mode}
+              {radio.passbandHz !== null && <span className="hint"> {radio.passbandHz} Hz</span>}
+            </span>
+            {radio.ptt ? <Pill state="alert">Transmitting</Pill> : <Pill state="ok">Receiving</Pill>}
+          </div>
+          <dl>
+            <dt>VFO</dt>
+            <dd>{radio.vfo ?? "not reported"}</dd>
+            <dt>Split</dt>
+            <dd>{radio.split === null ? "not reported" : radio.split ? `on, transmitting on ${radio.txVfo ?? "?"}` : "off"}</dd>
+            <dt>Last read</dt>
+            <dd>
+              {age(now - status.readUtc)} ago, {status.reads} reads, {status.errors} errors
+            </dd>
+            <dt>WSJT-X</dt>
+            <dd>{agreement ?? (status.state === "connected" ? "not reporting over UDP, so its dial cannot be compared" : "—")}</dd>
+          </dl>
+        </div>
+      )}
+
+      <h3>Connection</h3>
       <div className="controls">
         <label className="inline">
           <input
@@ -244,35 +284,16 @@ export function RadioPanel() {
       {status.lastError && status.state !== "failed" && <p className="error">Last problem: {status.lastError}</p>}
       {daemon && (
         <p className="hint">
-          {daemon.running ? `rigctld started by this app (process ${daemon.pid})` : `rigctld exited with code ${daemon.exitCode ?? "?"}`}
+          {daemon.running ? `rigctld started by this app, process ${daemon.pid}` : `rigctld exited with code ${daemon.exitCode ?? "?"}`}
           {chosenModel && ` for ${chosenModel.maker} ${chosenModel.model}`}: <code>{daemon.command}</code>
           {daemon.output && !daemon.running && <pre className="output">{daemon.output}</pre>}
         </p>
       )}
 
-      {radio && status.readUtc !== null && (
-        <article className="card">
-          <p className="plan-now">
-            <strong>{mhz(radio.freqHz)} MHz</strong> · {radio.band} · {radio.mode}
-            {radio.passbandHz !== null && ` ${radio.passbandHz} Hz`} ·{" "}
-            {radio.ptt ? <span className="caution">TRANSMITTING</span> : "receiving"}
-          </p>
-          <p className="hint">
-            {radio.vfo && `${radio.vfo} · `}
-            split {radio.split === null ? "unknown" : radio.split ? `on, transmit on ${radio.txVfo ?? "?"}` : "off"} · read{" "}
-            {age(now - status.readUtc)} · {status.reads} reads, {status.errors} errors
-          </p>
-          {agreement && <p>{agreement}</p>}
-          {!decoder && status.state === "connected" && (
-            <p className="hint">WSJT-X is not reporting over UDP, so its dial frequency cannot be compared.</p>
-          )}
-        </article>
-      )}
-
       <h3>Setting up</h3>
       <p className="note">
-        This app never transmits and, in this version, never changes the radio: it only reads
-        frequency, mode, PTT, split and VFO. It shares the radio with WSJT-X through Hamlib's{" "}
+        This app never transmits. It reads frequency, mode, PTT, split and VFO, and changes only
+        the frequency, and only while you run a scan from the Plan view. It shares the radio with WSJT-X through Hamlib's{" "}
         <code>rigctld</code>. Tick <em>Start rigctld for me</em>, choose the program, your radio,
         its serial port and speed, and Apply: the app starts the daemon, bound to this computer,
         and stops it when the app closes. Then in WSJT-X set the rig to <em>Hamlib NET rigctl</em>{" "}

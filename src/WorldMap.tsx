@@ -6,7 +6,7 @@ import { feature } from "topojson-client";
 import type { Topology } from "topojson-specification";
 import landTopology from "world-atlas/land-110m.json";
 import { Coverage, CoverageCell, HeardStation, LatLon } from "./types";
-import { shade } from "./tiers";
+import { relFill } from "./ui";
 
 const WIDTH = 760;
 const HEIGHT = 380;
@@ -254,16 +254,19 @@ export function WorldMap(props: Props) {
                 y={y0}
                 width={x1 - x0}
                 height={y1 - y0}
-                fill={shade(cell.reliability[coverage.bandIndex])}
+                className="coverage-cell"
+                style={relFill(cell.reliability[coverage.bandIndex])}
               />
             );
           })}
           <path className="graticule" d={graticule} vectorEffect="non-scaling-stroke" />
+          {coverage && <path className="coast" d={land} vectorEffect="non-scaling-stroke" />}
           <path className="night" d={night} />
+          {route && <path className="route-halo" d={route} vectorEffect="non-scaling-stroke" />}
           {route && <path className="route" d={route} vectorEffect="non-scaling-stroke" />}
         </g>
         {stations.map(({ station, x, y }) => (
-          <circle key={`${station.band} ${station.callsign}`} className="heard-station" cx={x} cy={y} r={3.5} />
+          <circle key={`${station.band} ${station.callsign}`} className="heard-station" cx={x} cy={y} r={4} />
         ))}
         {from && marker(from, "From")}
         {to && marker(to, "To")}
@@ -284,14 +287,14 @@ export function WorldMap(props: Props) {
           {hover.station && (
             <>
               <div>
-                <strong>{hover.station.callsign}</strong> {hover.station.grid} · {hover.station.band}
+                <strong>{hover.station.callsign}</strong> {hover.station.grid}, {hover.station.band}
               </div>
               <div>
                 <strong>{hover.station.bestSnrDb} dB</strong> best SNR, {hover.station.decodes}{" "}
                 {hover.station.decodes === 1 ? "decode" : "decodes"}
               </div>
               <div className="tooltip-title">
-                {hover.station.distanceKm !== null && `${hover.station.distanceKm.toFixed(0)} km · `}
+                {hover.station.distanceKm !== null && `${hover.station.distanceKm.toFixed(0)} km, `}
                 last heard {clockBoth(hover.station.lastHeardUtc)}
               </div>
             </>
@@ -300,7 +303,7 @@ export function WorldMap(props: Props) {
             <>
               <div className="tooltip-title">
                 Predicted at {Math.abs(hover.cell.lat)}°{hover.cell.lat >= 0 ? "N" : "S"}{" "}
-                {Math.abs(hover.cell.lon)}°{hover.cell.lon >= 0 ? "E" : "W"} ·{" "}
+                {Math.abs(hover.cell.lon)}°{hover.cell.lon >= 0 ? "E" : "W"},{" "}
                 {hover.cell.distanceKm.toFixed(0)} km
               </div>
               <div>

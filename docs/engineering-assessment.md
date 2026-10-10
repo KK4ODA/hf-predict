@@ -124,6 +124,7 @@ The feasibility notes below are as written before the spike.
 | GIRO ionosonde data, KC2G | **Do not bundle** | Non-commercial, account-holders only | Online display at most, later |
 | PSK Reporter, RBN, wspr.live | Optional online queries | Usage policies | Rate limits in section 13 |
 | Map data (Natural Earth) | Bundle | Public domain | None |
+| Typefaces: Atkinson Hyperlegible Next, Barlow Semi Condensed | Bundle (latin subsets, about 140 kB) | SIL OFL 1.1 | Ship the licence with the app (shown under Stations); do not sell the fonts on their own |
 | Callsign prefix table | Bundle | **(unverified)** | Check terms before bundling |
 
 None of this is legal advice. The two ambiguous items are the non-US copyright status of the NTIA code and the ITU grant.

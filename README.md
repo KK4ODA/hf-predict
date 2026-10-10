@@ -28,7 +28,7 @@ All ten phases of the [roadmap](docs/engineering-assessment.md#18-implementation
 | **Conditions** | Solar flux, A and K indices, storm state, three-day and 27-day forecasts, with source and age; fetched from NOAA, or requested over Winlink and imported from files or pasted text. The smoothed sunspot table the model uses, bundled and refreshable. |
 | **Engine** | The exact input and output of the engine run behind the prediction. |
 
-Every hour and time is shown in UTC and local time. Warnings for a geomagnetic storm and for a computer clock that is off appear on every screen.
+A status strip across the top shows the path, the time in UTC and local time, solar flux and indices, the receiver, the radio and the best band now, on every screen; warnings for a geomagnetic storm and for a computer clock that is off appear beneath it. Dark and Daylight themes; keyboard shortcuts (Ctrl+Enter predicts, Alt+1 to Alt+0 switch views, [ and ] step the hour). The design is described, with before and after screenshots, in [docs/design-system.md](docs/design-system.md).
 
 ## Getting started
 

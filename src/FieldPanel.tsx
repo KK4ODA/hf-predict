@@ -1,21 +1,16 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { modeCaution, OBSERVED, useComparison, verdictIcon } from "./comparison";
+import { modeCaution, useComparison, verdictIcon } from "./comparison";
 import { WorldMap } from "./WorldMap";
+import { WindowsText } from "./BestBands";
 import { Conditions, Observation, PathDetail } from "./types";
-import { clockHour, describeWindows } from "./tiers";
+import { byClockHour, clockHour, describeWindows } from "./tiers";
 import { hourBoth, Zone } from "./localtime";
+import { age, Evidence, HourStrip, OBSERVED_WORDS, pct } from "./ui";
 
 const EVIDENCE_MINUTES = 60;
 const TOP_BANDS = 3;
 const POLL_MS = 5000;
-
-function age(seconds: number): string {
-  if (seconds < 90) return `${Math.max(0, Math.round(seconds))} s`;
-  if (seconds < 90 * 60) return `${Math.round(seconds / 60)} min`;
-  if (seconds < 48 * 3600) return `${Math.round(seconds / 3600)} h`;
-  return `${Math.round(seconds / 86400)} days`;
-}
 
 /** The newest stored decode, refreshed while the screen is open. */
 function useLastDecode(): Observation | null {
@@ -44,128 +39,141 @@ type Props = {
   month: number;
   zone: Zone;
   conditions: Conditions | null;
+  nowClock: number;
 };
 
-/** One simplified screen for working a path: what to try, when, and how fresh the data is. */
-export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, zone, conditions }: Props) {
+/** One screen for working a path: what to try, when, and how fresh the data is. */
+export function FieldPanel({ detail, hourIndex, modeLabel, longPath, month, zone, conditions, nowClock }: Props) {
   const [rows, error] = useComparison(detail, hourIndex, EVIDENCE_MINUTES);
   const last = useLastDecode();
   const prediction = detail.prediction;
   const hours = prediction.run.prediction.hours;
   const hour = hours[hourIndex];
+  const clock = clockHour(hour.utcHour);
   const now = Date.now() / 1000;
 
   const ranked = [...rows]
     .sort((a, b) => a.verdict.priority - b.verdict.priority || b.modeReliability - a.modeReliability)
     .slice(0, TOP_BANDS);
-  const windowsFor = (band: string) => {
-    const index = prediction.bands.findIndex((b) => b.name === band);
-    const byClockHour = new Array<number>(24).fill(0);
-    for (const h of hours) byClockHour[clockHour(h.utcHour)] = h.frequencies[index].reliability;
-    return describeWindows(byClockHour, zone);
-  };
+  const daily = (band: string) => byClockHour(hours, prediction.bands.findIndex((b) => b.name === band));
   const wwv = conditions?.products.find((p) => p.kind === "wwv");
-  const alert = wwv?.stored?.product.kind === "wwv" ? wwv.stored.product : null;
+  const sun = wwv?.stored?.product.kind === "wwv" ? wwv.stored.product : null;
+  const nothingDependable = rows.length > 0 && ranked.every((row) => row.verdict.priority >= 6);
 
   return (
-    <section className="field">
+    <section>
+      <div className="view-head">
+        <h2>
+          {prediction.txLocator} → {prediction.rxLocator}
+        </h2>
+        <span className="hint">
+          {prediction.distanceKm.toFixed(0)} km {longPath ? "long" : "short"} path, {modeLabel},{" "}
+          {hourBoth(clock, zone)}
+        </span>
+      </div>
       {error && <p className="error">{error}</p>}
-      <p className="field-path">
-        {prediction.txLocator} → {prediction.rxLocator} · {prediction.distanceKm.toFixed(0)} km ·{" "}
-        {longPath ? "long path" : "short path"} · {modeLabel} · {hourBoth(clockHour(hour.utcHour), zone)}
-      </p>
 
-      <div className="field-bands">
-        {ranked.map((row, i) => {
-          const windows = windowsFor(row.band);
-          return (
-            <article key={row.band} className="card">
-              <p className="field-rank">{i === 0 ? "Try first" : "Then"}</p>
-              <p className="field-band">{row.band}</p>
-              <p className="field-verdict">
-                <span className={`verdict verdict-${row.verdict.priority}`} aria-hidden="true">
-                  {verdictIcon(row.verdict.priority)}
-                </span>{" "}
-                {row.verdict.label}
-              </p>
-              <p>{row.verdict.detail}</p>
-              {modeCaution(row, modeLabel, prediction.requiredSnrDbHz) && (
-                <p className="caution">{modeCaution(row, modeLabel, prediction.requiredSnrDbHz)}</p>
-              )}
-              <dl>
-                <dt>Predicted, {modeLabel}</dt>
-                <dd>{(row.modeReliability * 100).toFixed(0)}% of days</dd>
-                <dt>Heard that way</dt>
-                <dd>
-                  {OBSERVED[row.observed]}
-                  {row.evidenceStations > 0 && `, ${row.evidenceStations} stations`}
-                </dd>
-                <dt>Good hours</dt>
-                <dd>{windows ?? "none today"}</dd>
-              </dl>
-            </article>
-          );
-        })}
-      </div>
-      {rows.length > 0 && ranked.every((row) => row.verdict.priority >= 6) && (
-        <p className="banner">
-          No band looks dependable for this path at this hour. Check the good hours above, or try
-          another hour with the selector.
-        </p>
-      )}
-
-      <div className="field-status">
-        <article className="card">
-          <h3>Conditions</h3>
-          <p>{conditions?.storm ?? "No geomagnetic storm in the current data."}</p>
-          {alert && wwv?.ageSeconds != null ? (
-            <p>
-              Solar flux {alert.solarFlux ?? "?"}, A index {alert.aIndex ?? "?"}, K index{" "}
-              {alert.kIndex ?? "?"}.{" "}
-              <span className={wwv.stale ? "error" : "hint"}>
-                {age(wwv.ageSeconds)} old{wwv.stale && ", stale"}.
-              </span>
+      <div className="field">
+        <div className="field-bands">
+          {nothingDependable && (
+            <p className="lead">
+              No band looks dependable at this hour. The strips show when each one opens; step the hour
+              to see a better time.
             </p>
-          ) : (
-            <p className="hint">No solar indices received yet. See the Conditions tab.</p>
           )}
-        </article>
-        <article className="card">
-          <h3>Data age</h3>
-          <dl>
-            <dt>Prediction</dt>
-            <dd>
-              Climatological, sunspot number {prediction.ssn.value}
-              {conditions &&
-                `, table ${age(conditions.ssnTable.ageSeconds)} old${conditions.ssnTable.stale ? " (stale)" : ""}`}
-            </dd>
-            <dt>Last decode</dt>
-            <dd>
-              {last
-                ? `${age(now - last.timeUtc)} ago on ${last.band}`
-                : "none stored; see the Heard tab"}
-            </dd>
-            <dt>Evidence span</dt>
-            <dd>stations heard in the last {EVIDENCE_MINUTES} minutes</dd>
-          </dl>
-        </article>
-      </div>
+          {ranked.map((row, i) => {
+            const values = daily(row.band);
+            const caution = modeCaution(row, modeLabel, prediction.requiredSnrDbHz);
+            return (
+              <article key={row.band} className={`field-band${i === 0 ? " first" : ""}`}>
+                <div className="big">
+                  {row.band}
+                  <small>{i === 0 ? "Try first" : "Then"}</small>
+                </div>
+                <div className="verdict-line">
+                  <span className={`verdict verdict-${row.verdict.priority}`} aria-hidden="true">
+                    {verdictIcon(row.verdict.priority)}
+                  </span>{" "}
+                  {row.verdict.label}
+                  <span className="hint" style={{ fontWeight: 400, fontSize: 13 }}>
+                    {" "}
+                    {row.verdict.detail}
+                  </span>
+                </div>
+                <div className="facts">
+                  <span>
+                    Model <b>{pct(row.modeReliability)}</b> {modeLabel.split(" ")[0]}, <b>{pct(row.ft8Reliability)}</b> FT8
+                  </span>
+                  <span>
+                    <Evidence tier={row.observed} /> {OBSERVED_WORDS[row.observed]}
+                    {row.evidenceStations > 0 && `, ${row.evidenceStations}`}
+                  </span>
+                </div>
+                <div className="facts">
+                  <HourStrip byClockHour={values} selected={clock} now={nowClock} label={`${row.band} through the day`} />
+                  <span>
+                    Good hours <WindowsText windows={describeWindows(values, zone)} none="none today" />
+                  </span>
+                </div>
+                {caution && <div className="caution" style={{ gridColumn: 2 }}>{caution}</div>}
+              </article>
+            );
+          })}
+        </div>
 
-      <WorldMap
-        from={prediction.tx}
-        to={prediction.rx}
-        longPath={longPath}
-        month={month}
-        clockHour={clockHour(hour.utcHour)}
-        coverage={null}
-        heard={[]}
-        picking={false}
-        onPick={() => {}}
-      />
+        <div className="field-side">
+          <WorldMap
+            from={prediction.tx}
+            to={prediction.rx}
+            longPath={longPath}
+            month={month}
+            clockHour={clock}
+            coverage={null}
+            heard={[]}
+            picking={false}
+            onPick={() => {}}
+          />
+          <div className="panel">
+            <dl className="readings">
+              <dt>Conditions</dt>
+              <dd>
+                {sun ? (
+                  <>
+                    Solar flux <span className="num">{sun.solarFlux ?? "?"}</span>, A{" "}
+                    <span className="num">{sun.aIndex ?? "?"}</span>, K{" "}
+                    <span className="num">{sun.kIndex ?? "?"}</span>
+                    {conditions?.storm && <span className="error">, geomagnetic storm</span>}
+                  </>
+                ) : conditions?.storm ? (
+                  <span className="error">Geomagnetic storm</span>
+                ) : (
+                  <span className="hint">No solar data yet</span>
+                )}
+              </dd>
+              <dt>Solar data</dt>
+              <dd className={wwv?.stale ? "stale" : undefined}>
+                {wwv?.ageSeconds != null ? `${age(wwv.ageSeconds)} old${wwv.stale ? ", stale" : ""}` : "not received"}
+              </dd>
+              <dt>Prediction</dt>
+              <dd>
+                Monthly model, sunspot number <span className="num">{prediction.ssn.value}</span>
+                {conditions && (
+                  <span className={conditions.ssnTable.stale ? "stale" : "hint"}>
+                    , table {age(conditions.ssnTable.ageSeconds)} old
+                  </span>
+                )}
+              </dd>
+              <dt>Last decode</dt>
+              <dd>{last ? `${age(now - last.timeUtc)} ago on ${last.band}` : <span className="hint">none stored</span>}</dd>
+              <dt>Heard span</dt>
+              <dd>last {EVIDENCE_MINUTES} minutes</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
       <p className="note">
-        Everything on this screen comes from data on this computer. The recommendation compares the
-        FT8 prediction with FT8 stations heard toward the destination; see the Compare tab for the
-        full table and what it does and does not show.
+        Everything here comes from data on this computer. The recommendation sets the FT8 prediction
+        beside FT8 stations heard toward the destination; the Compare view has every band.
       </p>
     </section>
   );

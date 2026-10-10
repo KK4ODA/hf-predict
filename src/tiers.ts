@@ -24,11 +24,6 @@ export function tierOf(reliability: number): Tier {
   return UNLIKELY;
 }
 
-/** Cell shading for a reliability: one hue, stronger with more. */
-export function shade(reliability: number): string {
-  return `rgba(57, 135, 229, ${(reliability * 0.7).toFixed(2)})`;
-}
-
 /** VOACAP numbers hours 1–24, where 24 is 00 UTC. */
 export function clockHour(utcHour: number): number {
   return utcHour % 24;
@@ -65,10 +60,19 @@ function runsText(runs: [number, number][], zone: Zone | null): string {
   return runs.map(([from, to]) => (from === to ? label(from) : `${label(from)}–${label(to)}`)).join(", ");
 }
 
-/** "13–19 UTC · 09–15 EDT", "all day", or null when no hour is worth trying. */
-export function describeWindows(byClockHour: number[], zone: Zone): string | null {
+export type Windows = { allDay: true } | { allDay: false; utc: string; local: string; zone: string };
+
+/** The hours worth trying in UTC and local time, or null when there are none. */
+export function describeWindows(byClockHour: number[], zone: Zone): Windows | null {
   const runs = openRuns(byClockHour);
   if (runs.length === 0) return null;
-  if (runs[0][0] === 0 && runs[0][1] === 23) return "all day";
-  return `${runsText(runs, null)} UTC · ${runsText(runs, zone)} ${zone.name}`;
+  if (runs[0][0] === 0 && runs[0][1] === 23) return { allDay: true };
+  return { allDay: false, utc: runsText(runs, null), local: runsText(runs, zone), zone: zone.name };
+}
+
+/** Reliability by UTC clock hour for one band of a prediction. */
+export function byClockHour(hours: { utcHour: number; frequencies: { reliability: number }[] }[], band: number): number[] {
+  const values = new Array<number>(24).fill(0);
+  for (const h of hours) values[clockHour(h.utcHour)] = h.frequencies[band].reliability;
+  return values;
 }

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { modeCaution, OBSERVED, useComparison, verdictIcon } from "./comparison";
+import { modeCaution, useComparison, verdictIcon } from "./comparison";
 import { BandComparison, PathDetail } from "./types";
-import { clockHour, shade } from "./tiers";
+import { clockHour } from "./tiers";
 import { hourBoth, Zone } from "./localtime";
+import { Evidence, Meter, OBSERVED_WORDS } from "./ui";
 
 const WINDOWS = [
   { minutes: 15, label: "15 minutes" },
@@ -21,32 +22,38 @@ const OBSERVED_RANK: Record<BandComparison["observed"], number> = {
 const SORTS: { key: string; label: string; order: (a: BandComparison, b: BandComparison) => number }[] = [
   {
     key: "combined",
-    label: "Combined",
+    label: "Recommendation",
     order: (a, b) => a.verdict.priority - b.verdict.priority || b.modeReliability - a.modeReliability,
   },
-  { key: "predicted", label: "Predicted only", order: (a, b) => b.modeReliability - a.modeReliability },
+  { key: "predicted", label: "Model", order: (a, b) => b.ft8Reliability - a.ft8Reliability },
   {
     key: "observed",
-    label: "Observed only",
+    label: "Heard",
     order: (a, b) =>
       OBSERVED_RANK[a.observed] - OBSERVED_RANK[b.observed] || b.evidenceStations - a.evidenceStations,
   },
 ];
 
-const percent = (share: number) => `${(share * 100).toFixed(0)}%`;
-
 type Props = { detail: PathDetail; hourIndex: number; modeLabel: string; zone: Zone };
 
-/** Prediction for the path beside what has been heard toward the destination. */
+/** The model's prediction for the path beside what was heard toward the destination. */
 export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
   const [minutes, setMinutes] = useState(60);
   const [sortKey, setSortKey] = useState("combined");
   const [rows, error] = useComparison(detail, hourIndex, minutes);
   const sort = SORTS.find((s) => s.key === sortKey) ?? SORTS[0];
   const hour = detail.prediction.run.prediction.hours[hourIndex];
+  const listened = rows.filter((r) => r.observed !== "notSampled").length;
 
   return (
     <section>
+      <div className="view-head">
+        <h2>Model against what you heard</h2>
+        <span className="hint">
+          Prediction for {hourBoth(clockHour(hour.utcHour), zone)}, toward {detail.prediction.rxLocator}
+        </span>
+      </div>
+
       <div className="controls">
         <label className="inline">
           Heard in the last
@@ -58,82 +65,107 @@ export function ComparePanel({ detail, hourIndex, modeLabel, zone }: Props) {
             ))}
           </select>
         </label>
-        <label className="inline">
-          Rank by
-          <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
-            {SORTS.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="segmented" role="group" aria-label="Order the bands by">
+          {SORTS.map((s) => (
+            <button key={s.key} type="button" aria-pressed={s.key === sortKey} onClick={() => setSortKey(s.key)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <span className="hint">
+          {listened} of {rows.length} bands listened to long enough to tell
+        </span>
       </div>
       {error && <p className="error">{error}</p>}
 
-      <h3>Predicted and observed at {hourBoth(clockHour(hour.utcHour), zone)}</h3>
+      <div className="legend">
+        <span>
+          <span className="swatch model" /> Model: share of days VOACAP predicts the path works
+        </span>
+        <span>
+          <span className="swatch meas" /> Heard: FT8 stations your receiver decoded toward the destination
+        </span>
+        <span>
+          <span className="swatch hatch" /> Not listened to long enough to tell
+        </span>
+      </div>
+
       <div className="scroll-x">
-        <table className="results compact compare">
+        <table className="data compare">
           <thead>
             <tr>
-              <th rowSpan={2}>Band</th>
-              <th rowSpan={2}>Recommendation</th>
-              <th colSpan={2}>Predicted reliability</th>
-              <th colSpan={3}>Heard toward the destination</th>
-              <th colSpan={2}>Heard on the band</th>
-            </tr>
-            <tr>
-              <th>{modeLabel}</th>
-              <th>FT8</th>
-              <th>Evidence</th>
-              <th>Stations</th>
-              <th>Best SNR</th>
-              <th>Callsigns</th>
-              <th>Listened</th>
+              <th className="left">Band</th>
+              <th className="left">Recommendation</th>
+              <th>Model</th>
+              <th className="left">Heard toward the destination</th>
+              <th>On the whole band</th>
             </tr>
           </thead>
           <tbody>
-            {[...rows].sort(sort.order).map((row) => (
-              <tr key={row.band}>
-                <th>{row.band}</th>
-                <td className="left">
-                  <span className={`verdict verdict-${row.verdict.priority}`} aria-hidden="true">
-                    {verdictIcon(row.verdict.priority)}
-                  </span>{" "}
-                  <strong>{row.verdict.label}</strong>
-                  <div className="hint">{row.verdict.detail}</div>
-                  {modeCaution(row, modeLabel, detail.prediction.requiredSnrDbHz) && (
-                    <div className="caution">{modeCaution(row, modeLabel, detail.prediction.requiredSnrDbHz)}</div>
-                  )}
-                </td>
-                <td style={{ background: shade(row.modeReliability) }}>{percent(row.modeReliability)}</td>
-                <td style={{ background: shade(row.ft8Reliability) }}>{percent(row.ft8Reliability)}</td>
-                <td className="left">{OBSERVED[row.observed]}</td>
-                <td className="left">
-                  {row.evidenceStations}
-                  {row.evidenceExamples.length > 0 && (
-                    <span className="hint"> ({row.evidenceExamples.join(", ")})</span>
-                  )}
-                </td>
-                <td>{row.evidenceBestSnrDb === null ? "—" : `${row.evidenceBestSnrDb} dB`}</td>
-                <td>{row.bandCallsigns}</td>
-                <td>{row.periods === 0 ? "—" : `${row.periods.toFixed(0)} periods`}</td>
-              </tr>
-            ))}
+            {[...rows].sort(sort.order).map((row) => {
+              const caution = modeCaution(row, modeLabel, detail.prediction.requiredSnrDbHz);
+              return (
+                <tr key={row.band}>
+                  <th className="band">{row.band}</th>
+                  <td className="left rec">
+                    <span className={`verdict verdict-${row.verdict.priority}`} aria-hidden="true">
+                      {verdictIcon(row.verdict.priority)}
+                    </span>{" "}
+                    <strong>{row.verdict.label}</strong>
+                    <span className="hint">{row.verdict.detail}</span>
+                    {caution && <span className="caution">{caution}</span>}
+                  </td>
+                  <td>
+                    <div className="pair">
+                      <Meter value={row.ft8Reliability} label="FT8" />
+                      <Meter value={row.modeReliability} label={modeLabel.split(" ")[0]} />
+                    </div>
+                  </td>
+                  <td>
+                    <div className="heardcell">
+                      <span>
+                        <Evidence tier={row.observed} /> {OBSERVED_WORDS[row.observed]}
+                        {row.evidenceStations > 0 &&
+                          `, ${row.evidenceStations} ${row.evidenceStations === 1 ? "station" : "stations"}`}
+                      </span>
+                      {row.evidenceExamples.length > 0 && (
+                        <span className="examples">
+                          {row.evidenceExamples.join("  ")}
+                          {row.evidenceBestSnrDb !== null && `  best ${row.evidenceBestSnrDb} dB`}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    {row.periods === 0 ? (
+                      <span className="hint">not listened to</span>
+                    ) : (
+                      <>
+                        <span className="num">{row.bandCallsigns}</span> {row.bandCallsigns === 1 ? "callsign" : "callsigns"}
+                        <div className="hint">
+                          over <span className="num">{row.periods.toFixed(0)}</span> periods
+                        </div>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
       <p className="note">
-        The recommendation compares the FT8 prediction for this path with FT8 stations heard toward
-        the destination: within 1,500 km of it, or within 15° of its bearing and at least 60% as
-        far. Under four transmit periods of listening on a band counts as not listened to. Three
-        stations is moderate evidence and eight is strong.
+        The recommendation sets the FT8 prediction beside FT8 stations heard toward the destination:
+        within 1,500 km of it, or within 15° of its bearing and at least 60% as far. Under four
+        transmit periods of listening counts as not listened to. Three stations is moderate evidence,
+        eight is strong.
       </p>
       <p className="note">
-        Hearing stations that way shows the band is open in that direction for FT8. It does not
-        show that they can hear you, and FT8 gets through on about 25 dB less signal than SSB, so
-        read the {modeLabel} column for your own mode. Nothing heard is not proof that a band is
-        closed: it depends on who is transmitting.
+        Hearing stations that way shows the band is open that way for FT8. It does not show they can
+        hear you, and FT8 gets through on about 25 dB less signal than SSB, so read the {modeLabel}{" "}
+        bar for your own mode. Nothing heard is not proof a band is closed: it depends on who is
+        transmitting.
       </p>
     </section>
   );

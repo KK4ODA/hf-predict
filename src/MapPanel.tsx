@@ -2,6 +2,7 @@ import { hourBoth, Zone } from "./localtime";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WorldMap } from "./WorldMap";
+import { RelScale } from "./ui";
 import { Band, Coverage, HeardStation, LatLon, Mode, StationProfile } from "./types";
 
 type Props = {
@@ -32,10 +33,11 @@ type CoverageState =
 const DEFAULT_BAND = "20 m";
 const HEARD_POLL_MS = 5000;
 const HEARD_WINDOWS = [
-  { minutes: 15, label: "15 minutes" },
-  { minutes: 60, label: "hour" },
-  { minutes: 360, label: "6 hours" },
-  { minutes: 1440, label: "24 hours" },
+  { minutes: 0, label: "no heard stations" },
+  { minutes: 15, label: "heard in 15 minutes" },
+  { minutes: 60, label: "heard in the hour" },
+  { minutes: 360, label: "heard in 6 hours" },
+  { minutes: 1440, label: "heard in 24 hours" },
 ];
 
 /** Looks up a typed position; `null` while it is not a valid one. */
@@ -54,11 +56,11 @@ function useResolved(text: string): LatLon | null {
 }
 
 /** Stations heard on one band, refreshed while the layer is shown. */
-function useHeard(shown: boolean, minutes: number, band: string): [HeardStation[], string] {
+function useHeard(minutes: number, band: string): [HeardStation[], string] {
   const [stations, setStations] = useState<HeardStation[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
-    if (!shown) {
+    if (minutes === 0) {
       setStations([]);
       return;
     }
@@ -77,7 +79,7 @@ function useHeard(shown: boolean, minutes: number, band: string): [HeardStation[
       current = false;
       clearInterval(timer);
     };
-  }, [shown, minutes, band]);
+  }, [minutes, band]);
   return [stations, error];
 }
 
@@ -93,9 +95,8 @@ export function MapPanel(props: Props) {
   );
   const band = props.bands[bandIndex];
   const [coverage, setCoverage] = useState<CoverageState>({ kind: "idle" });
-  const [showHeard, setShowHeard] = useState(false);
   const [heardMinutes, setHeardMinutes] = useState(60);
-  const [heard, heardError] = useHeard(showHeard, heardMinutes, band.name);
+  const [heard, heardError] = useHeard(heardMinutes, band.name);
 
   // A coverage map describes the inputs it was computed from; drop it when they change.
   useEffect(() => {
@@ -134,21 +135,18 @@ export function MapPanel(props: Props) {
 
   return (
     <section>
+      <div className="view-head">
+        <h2>Map</h2>
+        <span className="hint">Day and night at {hourBoth(clockHour, zone)}, mid-month</span>
+      </div>
+
       <div className="controls">
-        <div className="segmented" role="group" aria-label="Pick a location on the map">
-          <button
-            type="button"
-            aria-pressed={picking === "from"}
-            onClick={() => setPicking(picking === "from" ? null : "from")}
-          >
-            Pick From
+        <div className="segmented" role="group" aria-label="Set a position by clicking the map">
+          <button type="button" aria-pressed={picking === "from"} onClick={() => setPicking(picking === "from" ? null : "from")}>
+            Set From on map
           </button>
-          <button
-            type="button"
-            aria-pressed={picking === "to"}
-            onClick={() => setPicking(picking === "to" ? null : "to")}
-          >
-            Pick To
+          <button type="button" aria-pressed={picking === "to"} onClick={() => setPicking(picking === "to" ? null : "to")}>
+            Set To on map
           </button>
         </div>
         <label className="inline">
@@ -162,23 +160,20 @@ export function MapPanel(props: Props) {
           </select>
         </label>
         <button type="button" onClick={showCoverage} disabled={!from || coverage.kind === "running"}>
-          {coverage.kind === "running" ? "Computing…" : "Show predicted coverage"}
+          {coverage.kind === "running" ? "Computing coverage…" : coverage.kind === "done" ? "Recompute coverage" : "Show predicted coverage"}
         </button>
-        <label className="inline">
-          <input type="checkbox" checked={showHeard} onChange={(e) => setShowHeard(e.target.checked)} />
-          Show stations heard in the last
-          <select value={heardMinutes} onChange={(e) => setHeardMinutes(Number(e.target.value))}>
-            {HEARD_WINDOWS.map((w) => (
-              <option key={w.minutes} value={w.minutes}>
-                {w.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <select value={heardMinutes} onChange={(e) => setHeardMinutes(Number(e.target.value))} aria-label="Heard stations layer">
+          {HEARD_WINDOWS.map((w) => (
+            <option key={w.minutes} value={w.minutes}>
+              {w.label}
+            </option>
+          ))}
+        </select>
       </div>
-      {picking && <p className="note">Click the map to set the {picking === "from" ? "From" : "To"} position.</p>}
-      {coverage.kind === "failed" && <p className="error">Coverage failed: {coverage.error}</p>}
-      {heardError && <p className="error">Heard stations: {heardError}</p>}
+      {picking && <p className="note">Click the map to set the {picking === "from" ? "From" : "To"} position. Press the button again to cancel.</p>}
+      {!from && <p className="note">Enter a From position, or set it on the map, to compute coverage.</p>}
+      {coverage.kind === "failed" && <p className="error">Coverage could not be computed: {coverage.error}</p>}
+      {heardError && <p className="error">Heard stations could not be read: {heardError}</p>}
 
       <WorldMap
         from={from}
@@ -192,39 +187,36 @@ export function MapPanel(props: Props) {
         onPick={pick}
       />
 
-      <div className="ramp">
-        {coverage.kind === "done" && (
-          <>
-            <span>Predicted 0%</span>
-            <span className="ramp-bar" />
-            <span>100% reliability</span>
-          </>
-        )}
-        {showHeard && (
+      <div className="maplegend">
+        <span>
+          <span className="swatch line" /> {props.longPath ? "Long" : "Short"} path
+        </span>
+        {coverage.kind === "done" && <RelScale label={`Predicted reach on ${band.name}`} />}
+        {heardMinutes > 0 && (
           <span>
-            <span className="heard-key" /> {heard.length} {heard.length === 1 ? "station" : "stations"}{" "}
-            heard on {band.name}
+            <span className="swatch meas dot" /> {heard.length} {heard.length === 1 ? "station" : "stations"} heard on{" "}
+            {band.name}
           </span>
         )}
+        <span>
+          <span className="swatch night" /> Night
+        </span>
+        <span className="hint">Grid lines mark Maidenhead fields. Drag to pan, scroll to zoom.</span>
       </div>
       {coverage.kind === "done" && (
         <p className="note">
-          Shading: predicted reliability of reaching a station like "{rxStation.name}" from the
-          From position on {band.name} at {hourBoth(clockHour, zone)}, in{" "}
-          {coverage.data.latStepDeg}° by {coverage.data.lonStepDeg}° cells, with antennas aimed to
-          within 22.5° of each cell.
+          Shading: predicted reliability of reaching a station like "{rxStation.name}" from the From
+          position on {band.name} at {hourBoth(clockHour, zone)}, in {coverage.data.latStepDeg}° by{" "}
+          {coverage.data.lonStepDeg}° cells, with antennas aimed to within 22.5° of each cell.
         </p>
       )}
-      {showHeard && (
+      {heardMinutes > 0 && (
         <p className="note">
-          Dots: stations this receiver decoded on {band.name}, at the centre of the locator each
-          sent. They show what was heard from here, which depends on who was transmitting; the
-          shading predicts where a signal from here would be heard. Hover for details.
+          Dots: stations this receiver decoded on {band.name}, at the centre of the locator each sent.
+          They show what was heard from here, which depends on who was transmitting; the shading
+          predicts where a signal from here would be heard.
         </p>
       )}
-      <p className="note">
-        The shaded half is night at the chosen hour, mid-month. Grid lines mark Maidenhead fields.
-      </p>
     </section>
   );
 }
