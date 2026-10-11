@@ -6,7 +6,7 @@ import { CSSProperties, ReactNode, RefObject, useEffect, useRef, useState } from
 import { BandComparison } from "./types";
 
 /** Upper edges of the reliability steps: they match the tier thresholds. */
-const REL_EDGES = [0.1, 0.3, 0.5, 0.7, 0.9];
+export const REL_EDGES = [0.1, 0.3, 0.5, 0.7, 0.9];
 const REL_LABELS = ["0", "10", "30", "50", "70", "90"];
 
 /** Which of the six reliability steps a value falls in, 0 to 5. */

@@ -1916,8 +1916,14 @@ table.hearing .reported {
   min-width: 220px;
 }
 
-.map .coverage-cell {
+/* The steps are painted in order inside one group, so the group's opacity
+   applies once and the land shows faintly through every step alike. */
+.map .coverage {
   opacity: 0.82;
+}
+
+.map .coverage path {
+  fill-rule: evenodd;
 }
 
 .map-controls {

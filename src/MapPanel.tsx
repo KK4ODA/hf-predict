@@ -1,6 +1,7 @@
 import { hourBoth, Zone } from "./localtime";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { WorldMap } from "./WorldMap";
 import { RelScale, Ring } from "./ui";
 import { Band, Coverage, HeardStation, LatLon, Mode, StationProfile, HearingStation, HearingYourArea } from "./types";
@@ -26,9 +27,19 @@ type Props = {
 
 type CoverageState =
   | { kind: "idle" }
-  | { kind: "running" }
+  /** `data` is the quick coarse map, shown while the fine one is computed. */
+  | { kind: "running"; data?: Coverage }
   | { kind: "done"; data: Coverage }
   | { kind: "failed"; error: string };
+
+type Progress = { done: number; total: number };
+
+/** "every 4° of latitude and longitude", or the two steps when they differ. */
+function spacing(data: Coverage): string {
+  return data.latStepDeg === data.lonStepDeg
+    ? `every ${data.latStepDeg}° of latitude and longitude`
+    : `every ${data.latStepDeg}° of latitude and ${data.lonStepDeg}° of longitude`;
+}
 
 const DEFAULT_BAND = "20 m";
 const HEARD_POLL_MS = 5000;
@@ -118,38 +129,84 @@ export function MapPanel(props: Props) {
   );
   const band = props.bands[bandIndex];
   const [coverage, setCoverage] = useState<CoverageState>({ kind: "idle" });
+  const [progress, setProgress] = useState<Progress | null>(null);
+  // Results only land if no newer request was made; `wanted` is whether the
+  // operator asked to see coverage, so a kept map for new inputs shows at once.
+  const generation = useRef(0);
+  const wanted = useRef(false);
   const [heardMinutes, setHeardMinutes] = useState(60);
   const [heard, heardError] = useHeard(heardMinutes, band.name);
   const [showHearing, setShowHearing] = useState(true);
   const hearing = useHearing(showHearing ? heardMinutes : 0, band.name, txPosition);
 
-  // A coverage map describes the inputs it was computed from; drop it when they change.
+  const request = useMemo(
+    () => ({
+      txPosition,
+      year,
+      month,
+      ssn,
+      txStation,
+      rxStation,
+      mode,
+      requiredReliabilityPct: reliability,
+      // The engine numbers hours 1-24, where 24 is 00 UTC.
+      utcHour: clockHour === 0 ? 24 : clockHour,
+    }),
+    [txPosition, year, month, ssn, txStation, rxStation, mode, reliability, clockHour],
+  );
+
   useEffect(() => {
+    let active = true;
+    const unlisten = listen<Progress>("coverage-progress", (event) => {
+      if (active) setProgress(event.payload);
+    });
+    return () => {
+      active = false;
+      unlisten.then((stop) => stop()).catch(() => {});
+    };
+  }, []);
+
+  // A coverage map describes the inputs it was computed from. When they
+  // change it is dropped, unless a fine map for the new ones was kept.
+  useEffect(() => {
+    const current = ++generation.current;
     setCoverage({ kind: "idle" });
-  }, [txPosition, year, month, ssn, txStation, rxStation, mode, reliability, clockHour]);
+    if (!wanted.current) return;
+    invoke<Coverage | null>("cached_coverage", { request })
+      .then((kept) => kept && current === generation.current && setCoverage({ kind: "done", data: kept }))
+      .catch(() => {});
+  }, [request]);
 
   async function showCoverage() {
+    const current = ++generation.current;
+    const isCurrent = () => current === generation.current;
+    wanted.current = true;
+    setProgress(null);
     setCoverage({ kind: "running" });
     try {
-      const data = await invoke<Coverage>("predict_coverage", {
-        request: {
-          txPosition,
-          year,
-          month,
-          ssn,
-          txStation,
-          rxStation,
-          mode,
-          requiredReliabilityPct: reliability,
-          // The engine numbers hours 1-24, where 24 is 00 UTC.
-          utcHour: clockHour === 0 ? 24 : clockHour,
-        },
-      });
-      setCoverage({ kind: "done", data });
+      const kept = await invoke<Coverage | null>("cached_coverage", { request });
+      if (!isCurrent()) return;
+      if (kept) {
+        setCoverage({ kind: "done", data: kept });
+        return;
+      }
+      const coarse = await invoke<Coverage>("predict_coverage", { request, fine: false });
+      if (!isCurrent()) return;
+      setCoverage({ kind: "running", data: coarse });
+      const fine = await invoke<Coverage>("predict_coverage", { request, fine: true });
+      if (isCurrent()) setCoverage({ kind: "done", data: fine });
     } catch (error) {
-      setCoverage({ kind: "failed", error: String(error) });
+      if (isCurrent()) setCoverage({ kind: "failed", error: String(error) });
     }
   }
+
+  function hideCoverage() {
+    generation.current++;
+    wanted.current = false;
+    setCoverage({ kind: "idle" });
+  }
+
+  const shown = coverage.kind === "done" || coverage.kind === "running" ? coverage.data : undefined;
 
   function pick(position: LatLon) {
     const text = `${position.lat.toFixed(2)}, ${position.lon.toFixed(2)}`;
@@ -184,9 +241,15 @@ export function MapPanel(props: Props) {
             ))}
           </select>
         </label>
-        <button type="button" onClick={showCoverage} disabled={!from || coverage.kind === "running"}>
-          {coverage.kind === "running" ? "Computing coverage…" : coverage.kind === "done" ? "Recompute coverage" : "Show predicted coverage"}
-        </button>
+        {coverage.kind === "done" ? (
+          <button type="button" onClick={hideCoverage}>
+            Hide coverage
+          </button>
+        ) : (
+          <button type="button" onClick={showCoverage} disabled={!from || coverage.kind === "running"}>
+            {coverage.kind === "running" ? "Computing coverage…" : "Show predicted coverage"}
+          </button>
+        )}
         <select value={heardMinutes} onChange={(e) => setHeardMinutes(Number(e.target.value))} aria-label="Heard stations layer">
           {HEARD_WINDOWS.map((w) => (
             <option key={w.minutes} value={w.minutes}>
@@ -206,6 +269,15 @@ export function MapPanel(props: Props) {
       </div>
       {picking && <p className="note">Click the map to set the {picking === "from" ? "From" : "To"} position. Press the button again to cancel.</p>}
       {!from && <p className="note">Enter a From position, or set it on the map, to compute coverage.</p>}
+      {coverage.kind === "running" && coverage.data && (
+        <p className="note">
+          A quick map, {spacing(coverage.data)}, is shown while the detailed one is computed
+          {progress && progress.total > 0 && progress.done < progress.total
+            ? ` (${Math.round((100 * progress.done) / progress.total)}%)`
+            : ""}
+          . The detailed map is kept, so this hour shows at once next time.
+        </p>
+      )}
       {coverage.kind === "failed" && <p className="error">Coverage could not be computed: {coverage.error}</p>}
       {heardError && <p className="error">Heard stations could not be read: {heardError}</p>}
 
@@ -215,7 +287,7 @@ export function MapPanel(props: Props) {
         longPath={props.longPath}
         month={month}
         clockHour={clockHour}
-        coverage={coverage.kind === "done" ? { data: coverage.data, bandIndex } : null}
+        coverage={shown ? { data: shown, bandIndex } : null}
         heard={heard}
         hearing={hearing}
         picking={picking !== null}
@@ -226,7 +298,7 @@ export function MapPanel(props: Props) {
         <span>
           <span className="swatch line" /> {props.longPath ? "Long" : "Short"} path
         </span>
-        {coverage.kind === "done" && <RelScale label={`Predicted reach on ${band.name}`} />}
+        {shown && <RelScale label={`Predicted reach on ${band.name}`} />}
         {heardMinutes > 0 && (
           <span>
             <span className="swatch meas dot" /> {heard.length} {heard.length === 1 ? "station" : "stations"} heard on{" "}
@@ -243,11 +315,12 @@ export function MapPanel(props: Props) {
         </span>
         <span className="hint">Grid lines mark Maidenhead fields. Drag to pan, scroll to zoom.</span>
       </div>
-      {coverage.kind === "done" && (
+      {shown && (
         <p className="note">
           Shading: predicted reliability of reaching a station like "{rxStation.name}" from the From
-          position on {band.name} at {hourBoth(clockHour, zone)}, in {coverage.data.latStepDeg}° by{" "}
-          {coverage.data.lonStepDeg}° cells, with antennas aimed to within 22.5° of each cell.
+          position on {band.name} at {hourBoth(clockHour, zone)}. It is predicted {spacing(shown)}, with
+          antennas aimed to within 22.5° of each point, and shaded smoothly between the points; hover to
+          read the nearest one.
         </p>
       )}
       {heardMinutes > 0 && (

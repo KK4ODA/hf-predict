@@ -1,12 +1,13 @@
 import { clockBoth } from "./localtime";
-import { useEffect, useMemo, useRef, useState, MouseEvent, PointerEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, MouseEvent, PointerEvent } from "react";
 import { geoCircle, geoEquirectangular, geoGraticule, geoInterpolate, geoPath } from "d3-geo";
 import type { Feature, LineString } from "geojson";
 import { feature } from "topojson-client";
 import type { Topology } from "topojson-specification";
-import landTopology from "world-atlas/land-110m.json";
+import landTopology from "world-atlas/land-50m.json";
+import { cellFinder, Frame, shadingPaths } from "./coverageShading";
 import { Coverage, CoverageCell, HeardStation, HearingStation, LatLon } from "./types";
-import { relFill, signedDb } from "./ui";
+import { signedDb } from "./ui";
 
 const WIDTH = 760;
 const HEIGHT = 380;
@@ -23,6 +24,16 @@ const topology = landTopology as unknown as Topology;
 const land = path(feature(topology, topology.objects.land)) ?? "";
 // 20 by 10 degrees is the Maidenhead field grid.
 const graticule = path(geoGraticule().step([20, 10])()) ?? "";
+// The projection is linear in longitude and latitude, which the coverage
+// shading relies on.
+const [frameLeft, frameTop] = projection([-180, 90]) ?? [0, 0];
+const [frameRight, frameBottom] = projection([180, -90]) ?? [WIDTH, HEIGHT];
+const FRAME: Frame = {
+  left: frameLeft,
+  top: frameTop,
+  xPerDeg: (frameRight - frameLeft) / 360,
+  yPerDeg: (frameBottom - frameTop) / 180,
+};
 
 /** Where the sun is overhead, as [longitude, latitude], for mid-month. */
 function subsolarPoint(month: number, clockHour: number): [number, number] {
@@ -95,6 +106,13 @@ export function WorldMap(props: Props) {
   const [view, setView] = useState<View>(HOME);
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
+  const clipId = useId();
+
+  const shading = useMemo(
+    () => (coverage ? shadingPaths(coverage.data, coverage.bandIndex, FRAME) : []),
+    [coverage?.data, coverage?.bandIndex],
+  );
+  const findCell = useMemo(() => (coverage ? cellFinder(coverage.data) : null), [coverage?.data]);
 
   // The wheel zooms the map instead of scrolling the page, which needs a
   // listener React cannot register (it must not be passive).
@@ -164,13 +182,7 @@ export function WorldMap(props: Props) {
   }
 
   function cellAt(position: LatLon): CoverageCell | undefined {
-    if (!coverage) return undefined;
-    const { latStepDeg, lonStepDeg, cells } = coverage.data;
-    return cells.find(
-      (c) =>
-        Math.abs(c.lat - position.lat) <= latStepDeg / 2 &&
-        Math.abs(c.lon - position.lon) <= lonStepDeg / 2,
-    );
+    return findCell?.(position.lat, position.lon);
   }
 
   function stationNear([px, py]: [number, number]): HeardStation | undefined {
@@ -264,24 +276,18 @@ export function WorldMap(props: Props) {
         onPointerLeave={() => setHover(null)}
       >
         <rect className="sea" width={WIDTH} height={HEIGHT} />
+        <clipPath id={clipId}>
+          <rect width={WIDTH} height={HEIGHT} />
+        </clipPath>
         <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
           <path className="land" d={land} />
-          {coverage?.data.cells.map((cell) => {
-            const { latStepDeg, lonStepDeg } = coverage.data;
-            const [x0, y0] = projection([cell.lon - lonStepDeg / 2, cell.lat + latStepDeg / 2]) ?? [0, 0];
-            const [x1, y1] = projection([cell.lon + lonStepDeg / 2, cell.lat - latStepDeg / 2]) ?? [0, 0];
-            return (
-              <rect
-                key={`${cell.lat},${cell.lon}`}
-                x={x0}
-                y={y0}
-                width={x1 - x0}
-                height={y1 - y0}
-                className="coverage-cell"
-                style={relFill(cell.reliability[coverage.bandIndex])}
-              />
-            );
-          })}
+          {shading.length > 0 && (
+            <g className="coverage" clipPath={`url(#${clipId})`}>
+              {shading.map((d, step) => (
+                <path key={step} d={d} style={{ fill: `var(--rel-${step})` }} />
+              ))}
+            </g>
+          )}
           <path className="graticule" d={graticule} vectorEffect="non-scaling-stroke" />
           {coverage && <path className="coast" d={land} vectorEffect="non-scaling-stroke" />}
           <path className="night" d={night} />
@@ -344,8 +350,8 @@ export function WorldMap(props: Props) {
           {hover.cell && coverage && (
             <>
               <div className="tooltip-title">
-                Predicted at {Math.abs(hover.cell.lat)}°{hover.cell.lat >= 0 ? "N" : "S"}{" "}
-                {Math.abs(hover.cell.lon)}°{hover.cell.lon >= 0 ? "E" : "W"},{" "}
+                Predicted at {Math.abs(hover.cell.lat)}°{hover.cell.lat > 0 ? "N" : hover.cell.lat < 0 ? "S" : ""}{" "}
+                {Math.abs(hover.cell.lon)}°{hover.cell.lon > 0 ? "E" : hover.cell.lon < 0 ? "W" : ""},{" "}
                 {hover.cell.distanceKm.toFixed(0)} km
               </div>
               <div>
