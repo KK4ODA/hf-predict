@@ -178,25 +178,7 @@ pub fn most_contacts(
     }
 
     let plan = coverage::plan_area(request, centres[0])?;
-    let rx = &request.rx_station;
-    let tx_station = &request.tx_station;
-    let key = format!(
-        "contacts|{}|{:.2},{:.2}|ssn {:.1}|tx {} W {} {} dB {}°|rx {} W {} {} dB {}°|{:?}|{}%",
-        engine.name(),
-        tx.lat,
-        tx.lon,
-        plan.ssn.value,
-        tx_station.power_watts,
-        tx_station.antenna,
-        tx_station.noise_db,
-        tx_station.min_angle_deg,
-        rx.power_watts,
-        rx.antenna,
-        rx.noise_db,
-        rx.min_angle_deg,
-        request.mode,
-        request.required_reliability_pct,
-    );
+    let key = format!("contacts|{}", coverage::assumptions(engine.name(), tx, plan.ssn.value, request));
     let mut cache = db.predicted_reliability(&key, request.year, request.month)?;
 
     let hours: BTreeSet<u32> = query.hours.iter().map(|h| h % 24).collect();
@@ -220,7 +202,7 @@ pub fn most_contacts(
             ..plan.engine_request.clone()
         };
         let points: Vec<LatLon> = wanted.iter().map(|&i| centres[i]).collect();
-        let predicted = coverage::predict_points(engine, request, &base, tx, &points)?;
+        let predicted = coverage::predict_points(engine, request, &base, tx, &points, &|_, _| {})?;
         let rows: Vec<(u32, String, Vec<f64>)> = wanted
             .iter()
             .zip(predicted)

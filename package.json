@@ -1,7 +1,7 @@
 {
   "name": "hf-predict",
   "private": true,
-  "version": "0.13.0",
+  "version": "0.14.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,7 @@
     "@tauri-apps/plugin-dialog": "^2.8.1",
     "@tauri-apps/plugin-process": "^2",
     "@tauri-apps/plugin-updater": "^2",
+    "d3-contour": "^4.0.2",
     "d3-geo": "^3.1.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@types/d3-contour": "^3.0.6",
     "@types/d3-geo": "^3.1.1",
     "@types/geojson": "^7946.0.16",
     "@types/react": "^19.1.8",

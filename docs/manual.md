@@ -4,7 +4,7 @@ HF Predict tells you which HF bands should reach a place, and at what hours. It 
 
 The app is receive only. It has no transmit function, and the only things it ever changes on the radio are the frequency and the mode, during a scan you start yourself.
 
-This manual describes version 0.13.0.
+This manual describes version 0.14.0.
 
 ## Contents
 
@@ -172,7 +172,9 @@ The map does not need a prediction. It shows the path, the night side of the ear
 
 - **Set From on map** and **Set To on map**: press one, then click the map. The position is entered as latitude and longitude. Press the button again to cancel.
 - **Band** chooses the band for the two layers below. It starts at 20 m.
-- **Show predicted coverage** shades the map with the predicted reliability of reaching a station like your *Other station* from the From position, on that band at the hour shown, with the antennas aimed to within 22.5° of each cell. The shading is cleared when you change the position, the hour, the stations or the mode; press *Recompute coverage* to draw it again.
+- **Show predicted coverage** shades the map with the predicted reliability of reaching a station like your *Other station* from the From position, on that band at the hour shown. The model is run every 4° of latitude and longitude, with the antennas aimed to within 22.5° of each point, and the shading is smoothed between the points. Hover over the map to read the nearest point.
+
+  The first time for an hour takes about seven seconds, and a rougher map shows while it works. After that the map is kept, so that hour shows at once, even after a restart. When you change the hour, the position, the stations or the mode, the shading goes away unless a map was kept for the new choice; press *Show predicted coverage* to work it out. *Hide coverage* takes the shading off.
 - The last list adds a dot for each station decoded on the band in the last 15 minutes, hour, 6 hours or 24 hours, placed at the centre of the locator it sent. Choose *no heard stations* to hide them.
 - *Stations hearing your area* adds an amber ring for each station heard, in the same span, sending a signal report to you or to a station near you. See [Who hears your area](#who-hears-your-area).
 
@@ -516,7 +518,7 @@ The end of the Stations view credits the people and projects HF Predict is built
 
 Everything stays on your computer. The app sends nothing anywhere except its requests to NOAA, when you ask for them, and its check for updates on GitHub.
 
-Saved stations, places and the list of logs are kept in `userdata.json`. Decodes are kept in `observations.db`, with the listener and radio settings, the solar data and the sunspot table in small files beside it.
+Saved stations, places and the list of logs are kept in `userdata.json`. Decodes are kept in `observations.db`, with the predictions kept for Most contacts and the Map's coverage. The listener and radio settings, the solar data and the sunspot table are in small files beside it.
 
 | System | Saved stations and places | Decodes and everything else |
 |---|---|---|

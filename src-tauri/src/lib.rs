@@ -31,6 +31,7 @@ use compare::{BandComparison, CompareQuery};
 use coverage::{Coverage, CoverageRequest};
 use geo::LatLon;
 use predictor::{PathOverview, PathRequest};
+use propagation::PropagationEngine;
 use spacewx::fetch::FetchResult;
 use spacewx::store::{Imported, Store, Transport};
 use spacewx::Conditions;
@@ -81,9 +82,33 @@ fn predict_overview(app: tauri::AppHandle, request: PathRequest) -> Result<PathO
     predictor::predict_overview(&engine(&app)?, &request)
 }
 
+/// Coverage for the Map: the coarse grid in about a second, or the fine one,
+/// kept once computed.
 #[tauri::command(async)]
-fn predict_coverage(app: tauri::AppHandle, request: CoverageRequest) -> Result<Coverage, String> {
-    coverage::predict_coverage(&engine(&app)?, &request)
+fn predict_coverage(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: CoverageRequest,
+    fine: bool,
+) -> Result<Coverage, String> {
+    let engine = engine(&app)?;
+    if !fine {
+        return coverage::predict_coverage(&engine, &request, coverage::COARSE_GRID, &|_, _| {});
+    }
+    let progress = |done: usize, total: usize| {
+        let _ = app.emit("coverage-progress", CalibrationProgress { done, total });
+    };
+    coverage::predict_coverage_cached(&engine, state.db()?, &request, coverage::FINE_GRID, &progress)
+}
+
+/// The fine coverage map, if it was computed before.
+#[tauri::command(async)]
+fn cached_coverage(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: CoverageRequest,
+) -> Result<Option<Coverage>, String> {
+    coverage::cached_coverage(engine(&app)?.name(), state.db()?, &request, coverage::FINE_GRID)
 }
 
 /// Turns a locator or latitude, longitude into coordinates, for the map.
@@ -169,6 +194,8 @@ fn make_plan(app: &tauri::AppHandle, query: &PlanQuery) -> Result<scan::Plan, St
                     required_reliability_pct: 90.0,
                     utc_hour: voacap_hour,
                 },
+                coverage::COARSE_GRID,
+                &|_, _| {},
             )?;
             let cells = coverage.cells.len().max(1) as f64;
             (0..coverage.bands.len())
@@ -885,6 +912,7 @@ pub fn run() {
             options,
             predict_overview,
             predict_coverage,
+            cached_coverage,
             resolve_position,
             conditions,
             refresh_conditions,

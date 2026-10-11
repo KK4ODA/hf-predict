@@ -1,5 +1,9 @@
 //! Where a station can reach at one hour: a point-to-point prediction to the
 //! centre of every cell of a world grid.
+//!
+//! The Map uses a fine grid, cached in the observation database by month and
+//! hour, and shows a coarse one while the fine one is computed. Listening
+//! plans only need a share of the world, so they use the coarse grid.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,13 +12,25 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::geo::{self, LatLon};
+use crate::observations::Database;
 use crate::predictor::{self, PathRequest};
 use crate::propagation::{HourPrediction, PredictionRequest, PropagationEngine};
 use crate::solar::SsnUsed;
 use crate::station::{self, Band, Mode, StationProfile, HF_BANDS};
 
-const LAT_STEP_DEG: f64 = 10.0;
-const LON_STEP_DEG: f64 = 15.0;
+/// Spacing of the points coverage is predicted at.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grid {
+    pub lat_step_deg: f64,
+    pub lon_step_deg: f64,
+}
+
+/// 432 points: about a second.
+pub const COARSE_GRID: Grid = Grid { lat_step_deg: 10.0, lon_step_deg: 15.0 };
+/// 4,050 points: about seven seconds on four cores. Finer grids mostly sharpen
+/// the edge of the skip zone, since the model's ionosphere is itself smooth.
+pub const FINE_GRID: Grid = Grid { lat_step_deg: 4.0, lon_step_deg: 4.0 };
+
 /// Cells this close to the transmitter are left out: the model predicts
 /// sky-wave paths, not ground wave.
 pub const MIN_DISTANCE_KM: f64 = 100.0;
@@ -67,17 +83,22 @@ pub struct Coverage {
     pub cells: Vec<CoverageCell>,
 }
 
-fn grid_centres() -> Vec<LatLon> {
-    let rows = (180.0 / LAT_STEP_DEG) as usize;
-    let columns = (360.0 / LON_STEP_DEG) as usize;
+fn grid_centres(grid: Grid) -> Vec<LatLon> {
+    let rows = (180.0 / grid.lat_step_deg).round() as usize;
+    let columns = (360.0 / grid.lon_step_deg).round() as usize;
     (0..rows)
         .flat_map(|row| {
             (0..columns).map(move |column| LatLon {
-                lat: -90.0 + LAT_STEP_DEG * (row as f64 + 0.5),
-                lon: -180.0 + LON_STEP_DEG * (column as f64 + 0.5),
+                lat: -90.0 + grid.lat_step_deg * (row as f64 + 0.5),
+                lon: -180.0 + grid.lon_step_deg * (column as f64 + 0.5),
             })
         })
         .collect()
+}
+
+/// The centres of the cells that are predicted: all but those too near.
+fn predicted_centres(tx: LatLon, grid: Grid) -> Vec<LatLon> {
+    grid_centres(grid).into_iter().filter(|&centre| geo::distance_km(tx, centre) >= MIN_DISTANCE_KM).collect()
 }
 
 /// The bearing used for every cell whose true bearing falls in the same
@@ -130,15 +151,41 @@ pub(crate) fn plan_area(request: &CoverageRequest, any_point: LatLon) -> Result<
     })
 }
 
+/// Everything an area prediction depends on apart from the points, month
+/// and hour, for keying cached predictions.
+pub(crate) fn assumptions(engine_name: &str, tx: LatLon, ssn: f64, request: &CoverageRequest) -> String {
+    let rx = &request.rx_station;
+    let tx_station = &request.tx_station;
+    format!(
+        "{}|{:.2},{:.2}|ssn {:.1}|tx {} W {} {} dB {}°|rx {} W {} {} dB {}°|{:?}|{}%",
+        engine_name,
+        tx.lat,
+        tx.lon,
+        ssn,
+        tx_station.power_watts,
+        tx_station.antenna,
+        tx_station.noise_db,
+        tx_station.min_angle_deg,
+        rx.power_watts,
+        rx.antenna,
+        rx.noise_db,
+        rx.min_angle_deg,
+        request.mode,
+        request.required_reliability_pct,
+    )
+}
+
 /// Predicts from `tx` to every point at the hour in `base`, with both
 /// antennas aimed at the centre of each point's sector. Points in the same
-/// sectors share engine runs, which several workers take in turn.
+/// sectors share engine runs, which several workers take in turn, and
+/// `progress` hears how many runs are done of how many.
 pub(crate) fn predict_points(
     engine: &(dyn PropagationEngine + Sync),
     request: &CoverageRequest,
     base: &PredictionRequest,
     tx: LatLon,
     points: &[LatLon],
+    progress: &(dyn Fn(usize, usize) + Sync),
 ) -> Result<Vec<HourPrediction>, String> {
     let groups = group_by_sector(
         tx,
@@ -158,6 +205,8 @@ pub(crate) fn predict_points(
 
     // Workers take runs from a shared counter until none are left.
     let next = AtomicUsize::new(0);
+    let done = AtomicUsize::new(0);
+    progress(0, runs.len());
     let predicted: Mutex<Vec<Option<HourPrediction>>> = Mutex::new(vec![None; points.len()]);
     let workers = std::thread::available_parallelism()
         .map_or(4, |n| n.get())
@@ -173,6 +222,8 @@ pub(crate) fn predict_points(
                         for (&i, hour) in run.1.iter().zip(hours) {
                             predicted[i] = Some(hour);
                         }
+                        drop(predicted);
+                        progress(done.fetch_add(1, Ordering::Relaxed) + 1, runs.len());
                     }
                     Ok(())
                 })
@@ -188,44 +239,128 @@ pub(crate) fn predict_points(
         .collect()
 }
 
+/// What every cell of a coverage map shares, worked out without the engine.
+struct Area {
+    tx: LatLon,
+    centres: Vec<LatLon>,
+    plan: predictor::Plan,
+    base: PredictionRequest,
+}
+
+fn area(request: &CoverageRequest, grid: Grid) -> Result<Area, String> {
+    let tx = geo::parse_position(&request.tx_position).map_err(|e| format!("Transmitter: {e}"))?;
+    let centres = predicted_centres(tx, grid);
+    let plan = plan_area(request, centres[0])?;
+    let base = PredictionRequest { utc_hour: Some(request.utc_hour), ..plan.engine_request.clone() };
+    Ok(Area { tx, centres, plan, base })
+}
+
+impl Area {
+    fn coverage(self, request: &CoverageRequest, grid: Grid, cells: Vec<CoverageCell>) -> Coverage {
+        Coverage {
+            tx: self.tx,
+            utc_hour: request.utc_hour,
+            lat_step_deg: grid.lat_step_deg,
+            lon_step_deg: grid.lon_step_deg,
+            ssn: self.plan.ssn,
+            required_snr_db_hz: self.base.required_snr_db_hz,
+            bands: HF_BANDS.to_vec(),
+            cells,
+        }
+    }
+
+    /// The cache key: everything but the month and hour.
+    fn key(&self, engine_name: &str, request: &CoverageRequest, grid: Grid) -> String {
+        format!(
+            "coverage {}x{}|{}",
+            grid.lat_step_deg,
+            grid.lon_step_deg,
+            assumptions(engine_name, self.tx, self.plan.ssn.value, request)
+        )
+    }
+}
+
+/// A cell's place in the cache.
+fn cell_name(centre: LatLon) -> String {
+    format!("{:.1},{:.1}", centre.lat, centre.lon)
+}
+
 pub fn predict_coverage(
     engine: &(dyn PropagationEngine + Sync),
     request: &CoverageRequest,
+    grid: Grid,
+    progress: &(dyn Fn(usize, usize) + Sync),
 ) -> Result<Coverage, String> {
-    let tx = geo::parse_position(&request.tx_position).map_err(|e| format!("Transmitter: {e}"))?;
-    let centres: Vec<LatLon> = grid_centres()
-        .into_iter()
-        .filter(|&centre| geo::distance_km(tx, centre) >= MIN_DISTANCE_KM)
-        .collect();
-
-    let plan = plan_area(request, centres[0])?;
-    let base = PredictionRequest { utc_hour: Some(request.utc_hour), ..plan.engine_request };
-    let predicted = predict_points(engine, request, &base, tx, &centres)?;
-
-    let cells = centres
+    let area = area(request, grid)?;
+    let predicted = predict_points(engine, request, &area.base, area.tx, &area.centres, progress)?;
+    let cells = area
+        .centres
         .iter()
         .zip(predicted)
-        .map(|(&centre, hour)| {
-            Ok(CoverageCell {
-                lat: centre.lat,
-                lon: centre.lon,
-                distance_km: geo::distance_km(tx, centre),
-                reliability: hour.frequencies.iter().map(|f| f.reliability).collect(),
-                snr_db: hour.frequencies.iter().map(|f| f.snr_db).collect(),
-            })
+        .map(|(&centre, hour)| CoverageCell {
+            lat: centre.lat,
+            lon: centre.lon,
+            distance_km: geo::distance_km(area.tx, centre),
+            reliability: hour.frequencies.iter().map(|f| f.reliability).collect(),
+            snr_db: hour.frequencies.iter().map(|f| f.snr_db).collect(),
         })
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect();
+    Ok(area.coverage(request, grid, cells))
+}
 
-    Ok(Coverage {
-        tx,
-        utc_hour: request.utc_hour,
-        lat_step_deg: LAT_STEP_DEG,
-        lon_step_deg: LON_STEP_DEG,
-        ssn: plan.ssn,
-        required_snr_db_hz: base.required_snr_db_hz,
-        bands: HF_BANDS.to_vec(),
-        cells,
-    })
+/// The map from the cache, when every cell of it is there.
+pub fn cached_coverage(
+    engine_name: &str,
+    db: &Database,
+    request: &CoverageRequest,
+    grid: Grid,
+) -> Result<Option<Coverage>, String> {
+    let area = area(request, grid)?;
+    let key = area.key(engine_name, request, grid);
+    let mut stored = db.predicted_reliability_at(&key, request.year, request.month, request.utc_hour % 24)?;
+    let bands = HF_BANDS.len();
+    let mut cells = Vec::with_capacity(area.centres.len());
+    for &centre in &area.centres {
+        // Reliability for each band, then SNR for each band.
+        let Some(mut values) = stored.remove(&cell_name(centre)) else { return Ok(None) };
+        if values.len() != 2 * bands {
+            return Ok(None);
+        }
+        let snr_db = values.split_off(bands);
+        cells.push(CoverageCell {
+            lat: centre.lat,
+            lon: centre.lon,
+            distance_km: geo::distance_km(area.tx, centre),
+            reliability: values,
+            snr_db,
+        });
+    }
+    Ok(Some(area.coverage(request, grid, cells)))
+}
+
+/// The map from the cache, or predicted and then kept there.
+pub fn predict_coverage_cached(
+    engine: &(dyn PropagationEngine + Sync),
+    db: &Database,
+    request: &CoverageRequest,
+    grid: Grid,
+    progress: &(dyn Fn(usize, usize) + Sync),
+) -> Result<Coverage, String> {
+    if let Some(coverage) = cached_coverage(engine.name(), db, request, grid)? {
+        return Ok(coverage);
+    }
+    let coverage = predict_coverage(engine, request, grid, progress)?;
+    let key = area(request, grid)?.key(engine.name(), request, grid);
+    let rows: Vec<(u32, String, Vec<f64>)> = coverage
+        .cells
+        .iter()
+        .map(|cell| {
+            let values = cell.reliability.iter().chain(&cell.snr_db).copied().collect();
+            (request.utc_hour % 24, cell_name(LatLon { lat: cell.lat, lon: cell.lon }), values)
+        })
+        .collect();
+    db.store_predicted_reliability(&key, request.year, request.month, &rows)?;
+    Ok(coverage)
 }
 
 #[cfg(test)]
@@ -256,10 +391,15 @@ mod tests {
 
     #[test]
     fn grid_covers_the_globe_without_touching_the_poles() {
-        let centres = grid_centres();
+        let centres = grid_centres(COARSE_GRID);
         assert_eq!(centres.len(), 18 * 24);
         assert_eq!(centres[0], LatLon { lat: -85.0, lon: -172.5 });
         assert_eq!(centres[centres.len() - 1], LatLon { lat: 85.0, lon: 172.5 });
+
+        let fine = grid_centres(FINE_GRID);
+        assert_eq!(fine.len(), 45 * 90);
+        assert_eq!(fine[0], LatLon { lat: -88.0, lon: -178.0 });
+        assert_eq!(fine[fine.len() - 1], LatLon { lat: 88.0, lon: 178.0 });
     }
 
     #[test]
@@ -277,7 +417,7 @@ mod tests {
 
     #[test]
     fn groups_hold_every_cell_once() {
-        let centres = grid_centres();
+        let centres = grid_centres(COARSE_GRID);
         let tx = LatLon { lat: 33.75, lon: -84.39 };
 
         let dipoles = group_by_sector(tx, &centres, 180.0, 180.0);
@@ -293,7 +433,7 @@ mod tests {
     #[test]
     fn predicts_every_cell_with_the_real_engine() {
         let started = std::time::Instant::now();
-        let coverage = predict_coverage(&engine("coverage"), &request()).unwrap();
+        let coverage = predict_coverage(&engine("coverage"), &request(), COARSE_GRID, &|_, _| {}).unwrap();
         println!("coverage of {} cells took {:?}", coverage.cells.len(), started.elapsed());
 
         // Atlanta is at a cell corner, so no centre is within 100 km of it.
@@ -316,7 +456,7 @@ mod tests {
     fn agrees_with_point_to_point_prediction() {
         let engine = engine("coverage-p2p");
         let request = request();
-        let coverage = predict_coverage(&engine, &request).unwrap();
+        let coverage = predict_coverage(&engine, &request, COARSE_GRID, &|_, _| {}).unwrap();
         let cell = coverage
             .cells
             .iter()
@@ -353,19 +493,76 @@ mod tests {
         }
     }
 
+    /// The fine map is predicted once, kept, and read back the same; another
+    /// hour or station is not mistaken for it.
+    #[test]
+    fn fine_coverage_is_cached() {
+        let engine = engine("coverage-fine");
+        let db = Database::in_memory().unwrap();
+        let request = request();
+        assert!(cached_coverage(engine.name(), &db, &request, FINE_GRID).unwrap().is_none());
+
+        let runs = Mutex::new((0, 0));
+        let started = std::time::Instant::now();
+        let fine = predict_coverage_cached(&engine, &db, &request, FINE_GRID, &|done, total| {
+            *runs.lock().unwrap() = (done, total);
+        })
+        .unwrap();
+        println!("fine coverage of {} cells took {:?}", fine.cells.len(), started.elapsed());
+        let (done, total) = *runs.lock().unwrap();
+        assert!(total > 0 && done == total, "{done} of {total} runs");
+        assert_eq!((fine.lat_step_deg, fine.lon_step_deg), (4.0, 4.0));
+        // Atlanta is 150 km from the nearest centre, so every cell is predicted.
+        assert_eq!(fine.cells.len(), 45 * 90);
+
+        let started = std::time::Instant::now();
+        let again = cached_coverage(engine.name(), &db, &request, FINE_GRID).unwrap().expect("kept");
+        println!("read from the cache in {:?}", started.elapsed());
+        assert_eq!(again.cells.len(), fine.cells.len());
+        for (a, b) in again.cells.iter().zip(&fine.cells) {
+            assert_eq!((a.lat, a.lon), (b.lat, b.lon));
+            assert_eq!(a.reliability, b.reliability);
+            assert_eq!(a.snr_db, b.snr_db);
+        }
+        assert_eq!(again.required_snr_db_hz, fine.required_snr_db_hz);
+
+        let other_hour = CoverageRequest { utc_hour: 15, ..request.clone() };
+        assert!(cached_coverage(engine.name(), &db, &other_hour, FINE_GRID).unwrap().is_none());
+        let mut other_station = request.clone();
+        other_station.tx_station.power_watts = 5.0;
+        assert!(cached_coverage(engine.name(), &db, &other_station, FINE_GRID).unwrap().is_none());
+        assert!(cached_coverage(engine.name(), &db, &request, COARSE_GRID).unwrap().is_none());
+    }
+
+    /// Writes real coarse and fine maps for the documentation screenshots:
+    /// HFP_DUMP=file HFP_HOUR=1-24 cargo test dump_coverage -- --ignored
+    #[test]
+    #[ignore]
+    fn dump_coverage() {
+        let Ok(path) = std::env::var("HFP_DUMP") else { return };
+        let engine = engine("coverage-dump");
+        let utc_hour = std::env::var("HFP_HOUR").ok().and_then(|h| h.parse().ok()).unwrap_or(14);
+        let request = CoverageRequest { utc_hour, ..request() };
+        let coarse = predict_coverage(&engine, &request, COARSE_GRID, &|_, _| {}).unwrap();
+        let fine = predict_coverage(&engine, &request, FINE_GRID, &|_, _| {}).unwrap();
+        let both = serde_json::json!({ "coarse": coarse, "fine": fine });
+        std::fs::write(path, both.to_string()).unwrap();
+    }
+
     #[test]
     fn reports_bad_input() {
         let engine = engine("coverage-bad");
+        let predict = |request: &CoverageRequest| predict_coverage(&engine, request, COARSE_GRID, &|_, _| {});
         let mut bad = request();
         bad.tx_position = "nowhere".into();
-        assert!(predict_coverage(&engine, &bad).unwrap_err().starts_with("Transmitter:"));
+        assert!(predict(&bad).unwrap_err().starts_with("Transmitter:"));
 
         let mut bad = request();
         bad.year = 2100;
-        assert!(predict_coverage(&engine, &bad).unwrap_err().contains("sunspot"));
+        assert!(predict(&bad).unwrap_err().contains("sunspot"));
 
         let mut bad = request();
         bad.utc_hour = 25;
-        assert!(predict_coverage(&engine, &bad).unwrap_err().contains("hour 25"));
+        assert!(predict(&bad).unwrap_err().contains("hour 25"));
     }
 }

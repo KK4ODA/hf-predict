@@ -377,6 +377,38 @@ impl Database {
         Ok(table)
     }
 
+    /// The same for one UTC hour (0-23): locator or place to values.
+    pub fn predicted_reliability_at(
+        &self,
+        key: &str,
+        year: i32,
+        month: u32,
+        hour: u32,
+    ) -> Result<BTreeMap<String, Vec<f64>>, String> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare(
+                "SELECT grid, bands FROM predicted_reliability
+                 WHERE key = ?1 AND year = ?2 AND month = ?3 AND hour = ?4",
+            )
+            .map_err(text)?;
+        let rows = statement
+            .query_map(params![key, year, month, i64::from(hour)], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })
+            .map_err(text)?;
+        let mut table = BTreeMap::new();
+        for row in rows {
+            let (grid, bands) = row.map_err(text)?;
+            let bands = bands
+                .split(',')
+                .map(|v| v.parse::<f64>().map_err(|e| format!("cached prediction: {e}")))
+                .collect::<Result<Vec<_>, _>>()?;
+            table.insert(grid, bands);
+        }
+        Ok(table)
+    }
+
     pub fn store_predicted_reliability(
         &self,
         key: &str,
