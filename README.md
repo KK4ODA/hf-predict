@@ -83,7 +83,19 @@ npm install
 npm run tauri dev                # or: npm run tauri build
 ```
 
-Tests: `sh tests/engine/run-reference.sh` (engine reference cases) and `cargo test --manifest-path src-tauri/Cargo.toml` (about 130 unit and integration tests, including a stand-in `rigctld` over TCP and a UDP listener). Longer checks that need local data are ignored by default and documented in the test files: the importer and the calibration over a real `ALL.TXT`, and starting the real `rigctld` with Hamlib's dummy radio.
+Tests: `sh tests/engine/run-reference.sh` (engine reference cases) and `cargo test --workspace` (the app's 130 or so unit and integration tests, including a stand-in `rigctld` over TCP and a UDP listener). Longer checks that need local data are ignored by default and documented in the test files: the importer and the calibration over a real `ALL.TXT`, and starting the real `rigctld` with Hamlib's dummy radio.
+
+### Libraries
+
+The repository is a Cargo workspace: the app in `src-tauri`, and in `crates/` libraries with no
+Tauri in them, which other programs use too ([RadioPost](https://github.com/KK4ODA/RadioPost) first,
+by git revision). They are the start of the split RadioPost's design describes (*Choosing a gateway*,
+§11); the engine and the predictor move into a library of their own later.
+
+| Crate | Holds |
+|---|---|
+| `radioprop-geo` | Positions, Maidenhead locators, great-circle distance and bearing (the app's `geo`) |
+| `radioprop-place` | Saved places, a GPS read over a serial port, TCP, UDP or gpsd, how fresh its fix is, and which gives the position in use |
 
 The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture, the roadmap, and what each phase found.
 
@@ -101,4 +113,5 @@ report helps just as much.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE). Third-party components and their terms are listed in the engineering assessment.
+The app: Apache-2.0, see [LICENSE](LICENSE). The libraries in `crates/`: MIT OR Apache-2.0, at your
+option, see [LICENSE-MIT](LICENSE-MIT) and [LICENSE](LICENSE). Third-party components and their terms are listed in the engineering assessment.

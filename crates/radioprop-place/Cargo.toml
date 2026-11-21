@@ -1,0 +1,15 @@
+[package]
+name = "radioprop-place"
+version = "0.1.0"
+description = "Where an amateur station is: saved places, a GPS read over serial, TCP, UDP or gpsd, and how fresh its fix is"
+authors = ["The hf-predict contributors"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+repository = "https://github.com/KK4ODA/hf-predict"
+
+[dependencies]
+radioprop-geo = { path = "../radioprop-geo" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# without libudev: ports are listed from /sys on Linux, so no system library is needed to build
+serialport = { version = "4.10", default-features = false }

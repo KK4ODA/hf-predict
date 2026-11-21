@@ -14,6 +14,9 @@ desktop.ini
 # Local build workspace
 .work/
 
+# The workspace's build output
+/target/
+
 # App build output
 node_modules/
 dist/
