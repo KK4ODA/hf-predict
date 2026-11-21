@@ -31,6 +31,8 @@ All ten phases of the [roadmap](docs/engineering-assessment.md#18-implementation
 | **Conditions** | Solar flux, A and K indices, storm state, three-day and 27-day forecasts, with source and age; fetched from NOAA, or requested over Winlink and imported from files or pasted text. The smoothed sunspot table the model uses, bundled and refreshable. |
 | **Engine** | The exact input and output of the VOACAP run behind the prediction, and who made the engine. |
 
+While it runs, other programs on the same computer can ask it what was heard lately toward a place, band by band, at a small read-only address on loopback, `http://127.0.0.1:8625/v1/evidence` ([manual](docs/manual.md#other-programs-on-this-computer)). RadioPost uses it beside each gateway's HF channel.
+
 A status strip across the top shows the path, the time in UTC and local time, solar flux and indices, the receiver, the radio and the best band now, on every screen; warnings for a geomagnetic storm and for a computer clock that is off appear beneath it. Dark and Daylight themes; keyboard shortcuts (Ctrl+Enter predicts, Alt+1 to Alt+0 switch views, [ and ] step the hour). The design is described, with before and after screenshots, in [docs/design-system.md](docs/design-system.md).
 
 ### Screenshots

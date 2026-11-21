@@ -2,6 +2,7 @@ pub mod calibration;
 pub mod compare;
 pub mod contacts;
 pub mod coverage;
+pub mod evidence;
 pub use radioprop_geo as geo;
 // the HF propagation library, under the names the app's modules have always used
 pub use radioprop_hf::{engine, predictor, propagation, solar, station, timeutil, voacap};
@@ -642,6 +643,18 @@ fn start_observing(app: &tauri::AppHandle) -> AppState {
     state
 }
 
+/// The evidence API for other programs on this computer (`evidence.rs`), over the observations
+/// once the database opened; a port another program holds is said and left.
+fn start_evidence_api(app: &tauri::AppHandle) {
+    let Ok(db) = app.state::<AppState>().db().cloned() else {
+        return;
+    };
+    let handle = app.clone();
+    if let Err(why) = evidence::serve(evidence::PORT, db, move || handle.state::<AppState>().own_call()) {
+        eprintln!("{why}");
+    }
+}
+
 const RADIO_FILE: &str = "radio.json";
 const RIGCTLD_RECORD_FILE: &str = "rigctld.json";
 const OWN_CALL_FILE: &str = "own-call.json";
@@ -901,6 +914,7 @@ pub fn run() {
         .setup(|app| {
             install_cached_ssn_table(app.handle());
             app.manage(start_observing(app.handle()));
+            start_evidence_api(app.handle());
             check_logs_on_start(app.handle().clone());
             start_wsjtx_when_ready(app.handle().clone());
             Ok(())
