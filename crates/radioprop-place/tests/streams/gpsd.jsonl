@@ -1,0 +1,8 @@
+{"class":"VERSION","release":"3.25","rev":"3.25","proto_major":3,"proto_minor":15}
+{"class":"DEVICES","devices":[{"class":"DEVICE","path":"/dev/ttyACM0","driver":"u-blox"}]}
+{"class":"WATCH","enable":true,"json":true}
+{"class":"TPV","device":"/dev/ttyACM0","mode":1,"time":"2026-11-20T03:15:20.000Z"}
+{"class":"SKY","device":"/dev/ttyACM0","satellites":[]}
+{"class":"TPV","device":"/dev/ttyACM0","mode":3,"status":1,"time":"2026-11-20T03:15:21.000Z","lat":33.749,"lon":-84.388,"altHAE":287.3,"altMSL":318.2}
+{"class":"TPV","device":"/dev/ttyACM0","mode":3,"status":1,"time":"2026-11-20T03:15:22.000Z","lat":33.749,"lon":-84.388,"altHAE":287.3,"altMSL":318.2}
+{"class":"TPV","device":"/dev/ttyACM0","mode":3,"status":1,"time":"2026-11-20T03:15:23.000Z","lat":33.749,"lon":-84.388,"altHAE":287.3,"altMSL":318.2}

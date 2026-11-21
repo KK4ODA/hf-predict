@@ -3,7 +3,7 @@ pub mod compare;
 pub mod contacts;
 pub mod coverage;
 pub mod engine;
-pub mod geo;
+pub use radioprop_geo as geo;
 pub mod jsonfile;
 pub mod observations;
 pub mod predictor;

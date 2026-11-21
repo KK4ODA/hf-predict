@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Station positions: Maidenhead locators, latitude/longitude, great-circle geometry.
 
 use serde::{Deserialize, Serialize};
@@ -39,7 +40,9 @@ pub fn parse_position(text: &str) -> Result<LatLon, String> {
         .filter(|p| !p.is_empty())
         .collect();
     let [lat, lon] = parts[..] else {
-        return Err(format!("'{text}' is not a locator or a latitude, longitude pair"));
+        return Err(format!(
+            "'{text}' is not a locator or a latitude, longitude pair"
+        ));
     };
     LatLon::new(parse_degrees(lat, 'N', 'S')?, parse_degrees(lon, 'E', 'W')?)
 }
@@ -60,12 +63,18 @@ fn parse_degrees(text: &str, positive: char, negative: char) -> Result<f64, Stri
 pub fn from_maidenhead(locator: &str) -> Result<LatLon, String> {
     let chars: Vec<char> = locator.trim().chars().collect();
     if ![4, 6, 8].contains(&chars.len()) {
-        return Err(format!("locator '{locator}' must have 4, 6 or 8 characters"));
+        return Err(format!(
+            "locator '{locator}' must have 4, 6 or 8 characters"
+        ));
     }
     let bad = || format!("'{locator}' is not a valid Maidenhead locator");
     let letter = |c: char, count: u32| -> Result<f64, String> {
         let index = (c.to_ascii_uppercase() as u32).wrapping_sub('A' as u32);
-        if c.is_ascii_alphabetic() && index < count { Ok(index as f64) } else { Err(bad()) }
+        if c.is_ascii_alphabetic() && index < count {
+            Ok(index as f64)
+        } else {
+            Err(bad())
+        }
     };
     let digit = |c: char| c.to_digit(10).map(f64::from).ok_or_else(bad);
 
@@ -134,14 +143,20 @@ mod tests {
     #[test]
     fn maidenhead_square_centre() {
         let p = from_maidenhead("EM73").unwrap();
-        assert!(close(p.lat, 33.5, 1e-9) && close(p.lon, -85.0, 1e-9), "{p:?}");
+        assert!(
+            close(p.lat, 33.5, 1e-9) && close(p.lon, -85.0, 1e-9),
+            "{p:?}"
+        );
     }
 
     #[test]
     fn maidenhead_subsquare_centre() {
         // W1AW, Newington CT.
         let p = from_maidenhead("FN31pr").unwrap();
-        assert!(close(p.lat, 41.7292, 1e-3) && close(p.lon, -72.7083, 1e-3), "{p:?}");
+        assert!(
+            close(p.lat, 41.7292, 1e-3) && close(p.lon, -72.7083, 1e-3),
+            "{p:?}"
+        );
     }
 
     #[test]
@@ -154,13 +169,19 @@ mod tests {
     #[test]
     fn rejects_bad_locators() {
         for locator in ["EM7", "SM73", "EMX3", "EM73zz", "E"] {
-            assert!(from_maidenhead(locator).is_err(), "{locator} should be rejected");
+            assert!(
+                from_maidenhead(locator).is_err(),
+                "{locator} should be rejected"
+            );
         }
     }
 
     #[test]
     fn parses_latitude_longitude_forms() {
-        let expected = LatLon { lat: 33.75, lon: -84.39 };
+        let expected = LatLon {
+            lat: 33.75,
+            lon: -84.39,
+        };
         assert_eq!(parse_position("33.75, -84.39").unwrap(), expected);
         assert_eq!(parse_position("33.75N 84.39W").unwrap(), expected);
         assert_eq!(parse_position(" 33.75n,84.39w ").unwrap(), expected);
@@ -171,8 +192,14 @@ mod tests {
     #[test]
     fn distance_and_bearing_match_voacap() {
         // Tangier to Belgrade, as printed in the VOACAP reference output.
-        let tangier = LatLon { lat: 35.80, lon: -5.90 };
-        let belgrade = LatLon { lat: 44.90, lon: 20.50 };
+        let tangier = LatLon {
+            lat: 35.80,
+            lon: -5.90,
+        };
+        let belgrade = LatLon {
+            lat: 44.90,
+            lon: 20.50,
+        };
         assert!(close(distance_km(tangier, belgrade), 2440.5, 5.0));
         assert!(close(bearing_deg(tangier, belgrade), 57.41, 0.2));
         assert!(close(bearing_deg(belgrade, tangier), 254.73, 0.2));

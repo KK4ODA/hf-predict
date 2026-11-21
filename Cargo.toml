@@ -1,0 +1,13 @@
+# hf-predict and the libraries it shares with other programs (RadioPost first): the app in
+# `src-tauri`, the libraries in `crates/`, which carry no Tauri dependency.
+[workspace]
+members = ["src-tauri", "crates/*"]
+resolver = "2"
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

@@ -59,15 +59,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: ". -> target"
 
       - name: Build frontend
         shell: bash
         run: npm ci && npm run build
 
-      - name: App tests
+      - name: App and library tests
         shell: bash
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --workspace
 
       - name: Upload engine and outputs
         if: always()

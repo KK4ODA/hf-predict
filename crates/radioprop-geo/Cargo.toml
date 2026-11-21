@@ -1,0 +1,11 @@
+[package]
+name = "radioprop-geo"
+version = "0.1.0"
+description = "Positions, Maidenhead locators and great-circle geometry for amateur radio"
+authors = ["The hf-predict contributors"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+repository = "https://github.com/KK4ODA/hf-predict"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
