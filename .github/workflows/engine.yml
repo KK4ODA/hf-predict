@@ -1,0 +1,125 @@
+name: engine
+
+# Builds the VOACAP engine (voacapl, by engines/voacapl/build.sh) for Windows, Linux and macOS,
+# checks it against the engine reference cases, and publishes it with its checksums as a release of
+# its own, for other programs to bundle: RadioPost first, which pins one by name and checks the
+# archive against these checksums (its design, choosing a gateway, §11.2).
+#
+# Started by hand with a name beginning `engine-`, such as engine-voacapl-0.7.7-1: the release and
+# its tag take that name, on the commit the run is on. It is published as a pre-release and never
+# as the latest release, because the app's updater reads the latest one; and it never starts the
+# app's release workflow, which runs only for tags beginning `v`.
+#
+# Each archive, voacapl-<platform>.tar.gz, holds one folder, engine/: bin/voacapl (.exe on
+# Windows), the itshfbc data tree with hf-predict's antennas, and the notices that travel with the
+# engine (NTIA's disclaimer, the port's CC0 terms and its authors).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "The release's name, beginning engine-, such as engine-voacapl-0.7.7-1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: the name
+    runs-on: ubuntu-latest
+    steps:
+      - name: A name beginning engine-, not yet used
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          case "$RELEASE" in
+            engine-*) ;;
+            *) echo "::error::the name must begin engine-: $RELEASE"; exit 1 ;;
+          esac
+          if gh release view "$RELEASE" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$RELEASE is already a release: a published engine is never replaced"
+            exit 1
+          fi
+
+  build:
+    name: ${{ matrix.target }}
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            shell: bash
+          - os: macos-latest
+            target: macos-arm64
+            shell: bash
+          - os: windows-latest
+            target: windows-x64
+            shell: msys2 {0}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: git make autoconf automake tar gzip mingw-w64-ucrt-x86_64-gcc-fortran
+
+      - name: Toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran autoconf automake
+
+      - name: Toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gcc autoconf automake
+
+      - name: Build engine
+        run: sh engines/voacapl/build.sh
+
+      - name: Engine reference cases
+        run: sh tests/engine/run-reference.sh
+
+      - name: Archive
+        run: tar -czf "voacapl-${{ matrix.target }}.tar.gz" -C .work engine
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voacapl-${{ matrix.target }}
+          path: voacapl-${{ matrix.target }}.tar.gz
+          retention-days: 3
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: out
+        run: sha256sum voacapl-*.tar.gz > SHA256SUMS && cat SHA256SUMS
+
+      - name: The release
+        working-directory: out
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          notes="The VOACAP engine (voacapl, built by engines/voacapl/build.sh at commit ${GITHUB_SHA}) for programs that bundle it. Not an hf-predict release: the app's installers are on its own releases. Each archive holds engine/: the engine, its data tree and the notices that travel with it. SHA256SUMS has their checksums."
+          gh release create "$RELEASE" voacapl-*.tar.gz SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "VOACAP engine for other programs ($RELEASE)" --notes "$notes" \
+            --prerelease --latest=false
