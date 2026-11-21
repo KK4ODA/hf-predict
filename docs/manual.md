@@ -479,7 +479,7 @@ There are two profiles: *My station, transmitting* and *Other station, receiving
 - the transmit power in watts;
 - the lowest take-off angle in degrees;
 - the antenna: a half-wave dipole 10 m or 5 m high, a quarter-wave vertical, a 2.5 m mobile whip, or an isotropic reference antenna;
-- the local noise: residential, rural or remote.
+- the local noise: residential (−145 dBW/Hz), rural (−150 dBW/Hz) or remote, a quiet rural site (−164 dBW/Hz). These are ITU-R P.372's median levels of man-made noise at 3 MHz. A profile saved before 2026-11-21 with *Rural, quiet* (−155 dBW/Hz, which is none of P.372's levels) opens as rural.
 
 Type a name and save the profile to use it again. Saved profiles appear in the *My station* and *Other station* lists under *More settings*.
 

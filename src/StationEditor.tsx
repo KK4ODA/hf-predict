@@ -86,6 +86,10 @@ export function StationEditor({ title, station, options, saved, onChange, onSave
               {n.label}
             </option>
           ))}
+          {/* a level not in the list is shown as it is, not as the first entry */}
+          {!options.noiseLevels.some((n) => n.value === station.noiseDb) && (
+            <option value={station.noiseDb}>{`Other (-${station.noiseDb} dBW/Hz)`}</option>
+          )}
         </select>
       </label>
       <div className="row">

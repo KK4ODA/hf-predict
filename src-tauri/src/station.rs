@@ -49,17 +49,33 @@ pub fn azimuth_period_deg(antenna_file: &str) -> f64 {
     }
 }
 
-/// VOACAP man-made noise categories.
+/// Man-made noise at 3 MHz, in dB below 1 W in 1 Hz, as VOACAP takes it: ITU-R P.372-18's
+/// medians (§6.1, `Fam = c - d log10 f` with Table 1's constants, and `Fam - 204` dBW/Hz by its
+/// equation 6), to the nearest decibel. Residential (curve B) is -144.7, rural (curve C) -150.0,
+/// and quiet rural (curve D, VOACAP's "remote") -164.0.
 pub const NOISE_RESIDENTIAL: f64 = 145.0;
-pub const NOISE_RURAL: f64 = 155.0;
+pub const NOISE_RURAL: f64 = 150.0;
 pub const NOISE_REMOTE: f64 = 164.0;
+
+/// What this list offered as "Rural, quiet" until 2026-11-21: no P.372 category, between rural
+/// and quiet rural. The manual and the presets called it rural, so a profile saved with it is
+/// read as rural (`corrected`).
+const NOISE_EARLIER_RURAL: f64 = 155.0;
 
 pub fn noise_levels() -> Vec<Choice<f64>> {
     vec![
         Choice { value: NOISE_RESIDENTIAL, label: "Residential (-145 dBW/Hz)" },
-        Choice { value: NOISE_RURAL, label: "Rural, quiet (-155 dBW/Hz)" },
-        Choice { value: NOISE_REMOTE, label: "Remote (-164 dBW/Hz)" },
+        Choice { value: NOISE_RURAL, label: "Rural (-150 dBW/Hz)" },
+        Choice { value: NOISE_REMOTE, label: "Remote, quiet rural (-164 dBW/Hz)" },
     ]
+}
+
+/// A saved profile as this version reads it: the earlier "Rural, quiet" level becomes rural.
+pub fn corrected(mut profile: StationProfile) -> StationProfile {
+    if profile.noise_db == NOISE_EARLIER_RURAL {
+        profile.noise_db = NOISE_RURAL;
+    }
+    profile
 }
 
 /// Modelled antennas already include ground effects, so the engine may use
@@ -169,5 +185,36 @@ mod tests {
         assert_eq!(band_for_hz(50_313_000), "6 m");
         assert_eq!(band_for_hz(5_357_000), "60 m");
         assert_eq!(band_for_hz(13_000_000), "13.000 MHz");
+    }
+
+    #[test]
+    fn noise_levels_are_itu_r_p372s_at_3_mhz() {
+        // ITU-R P.372-18 Table 1: c and d of Fam = c - d log10 f, f in MHz; the noise power is
+        // Fam - 204 dBW/Hz (its equation 6). Each level the list offers is one of them, to 0.5 dB.
+        let p372 = |c: f64, d: f64| -(c - d * 3f64.log10() - 204.0);
+        let cases = [
+            (NOISE_RESIDENTIAL, p372(72.5, 27.7), "Residential"),
+            (NOISE_RURAL, p372(67.2, 27.7), "Rural"),
+            (NOISE_REMOTE, p372(53.6, 28.6), "Remote, quiet rural"),
+        ];
+        for (level, want, name) in cases {
+            assert!((level - want).abs() <= 0.5, "{name}: {level} against P.372's {want:.1}");
+            let offered = noise_levels().into_iter().find(|c| c.value == level).expect(name);
+            assert!(offered.label.starts_with(name), "{}", offered.label);
+            assert!(offered.label.contains(&format!("-{level:.0} dBW/Hz")), "{}", offered.label);
+        }
+        assert_eq!(noise_levels().len(), cases.len());
+    }
+
+    #[test]
+    fn a_profile_with_the_earlier_rural_level_is_read_as_rural() {
+        let mut p = presets().remove(1);
+        assert_eq!(p.noise_db, NOISE_RURAL, "QRP portable is rural");
+        p.noise_db = 155.0;
+        assert_eq!(corrected(p.clone()).noise_db, NOISE_RURAL);
+        for level in [NOISE_RESIDENTIAL, NOISE_RURAL, NOISE_REMOTE, 151.0] {
+            p.noise_db = level;
+            assert_eq!(corrected(p.clone()).noise_db, level, "{level} is left alone");
+        }
     }
 }

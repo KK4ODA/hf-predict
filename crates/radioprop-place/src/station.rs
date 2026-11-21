@@ -26,22 +26,27 @@ pub enum AntennaKind {
     Other,
 }
 
-/// Man-made noise where the station is: the environments of ITU-R P.372's man-made noise
-/// (business, residential, rural, quiet rural), the categories VOACAP offers.
+/// Man-made noise where the station is: the environments of ITU-R P.372-18's Table 1 (city,
+/// residential, rural, quiet rural), the categories VOACAP offers under its own names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Noise {
-    /// P.372's business area.
+    /// P.372's city (curve A).
     Industrial,
+    /// Curve B.
     Residential,
+    /// Curve C.
     Rural,
-    /// P.372's quiet rural site.
+    /// P.372's quiet rural site (curve D). P.372 does not hold its line over the whole range the
+    /// others cover: above the ionosphere's critical frequency galactic noise (curve E) is the
+    /// floor there.
     Remote,
 }
 
 impl Noise {
-    /// The median man-made noise power at `mhz`, dBW in a 1 Hz bandwidth, by ITU-R P.372:
-    /// `Fam = c − d·log10(f)` dB above kT0b, and `Fam − 204` dBW/Hz.
+    /// The median man-made noise power at `mhz`, dBW in a 1 Hz bandwidth, by ITU-R P.372-18 §6.1:
+    /// `Fam = c − d·log10(f)` dB above kT0b (its equation 17, with Table 1's c and d; stated for
+    /// 0.3 to 250 MHz), and `Fam − 204` dBW/Hz (its equation 6).
     #[must_use]
     pub fn dbw_per_hz(self, mhz: f64) -> f64 {
         let (c, d) = match self {
@@ -259,7 +264,7 @@ mod tests {
 
     #[test]
     fn noise_follows_itu_r_p372() {
-        // at 3 MHz, the levels VOACAP's categories are known by
+        // at 3 MHz, the levels VOACAP's categories are known by: P.372-18 Table 1's constants
         let at3 = |n: Noise| (n.dbw_per_hz(3.0) * 10.0).round() / 10.0;
         assert_eq!(
             [
