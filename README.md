@@ -94,8 +94,11 @@ by git revision). They are the start of the split RadioPost's design describes (
 
 | Crate | Holds |
 |---|---|
-| `radioprop-geo` | Positions, Maidenhead locators, great-circle distance and bearing (the app's `geo`) |
+| `radioprop-geo` | Positions, Maidenhead locators, great-circle distance, bearing and the points along it (the app's `geo`) |
 | `radioprop-place` | Saved places, a GPS read over a serial port, TCP, UDP or gpsd, how fresh its fix is, and which gives the position in use; station profiles (power, antennas, feed line, noise by ITU-R P.372), every value set or assumed |
+| `radioprop-terrain` | Terrain for VHF and UHF paths: Copernicus DEM tiles (GLO-30 and GLO-90) read from their GeoTIFFs and kept in a compact form, path profiles, the Earth's bulge, clearance and the first Fresnel zone, diffraction loss by ITU-R P.526-16 (§ 4.5, written from the Recommendation and tested against cases worked by hand), and link budgets. It names the tiles' URLs and converts what was fetched; fetching is the program's |
+
+What is made from the Copernicus DEM carries Copernicus's notice: produced using Copernicus WorldDEM-30 (or WorldDEM™-90) © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30 (or WorldDEM™-90).
 
 The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture, the roadmap, and what each phase found.
 
