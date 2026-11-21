@@ -132,6 +132,29 @@ pub fn bearing_deg(from: LatLon, to: LatLon) -> f64 {
     y.atan2(x).to_degrees().rem_euclid(360.0)
 }
 
+/// The point a fraction `f` of the way along the short great circle from `from` to `to`: `from` at
+/// 0, `to` at 1. Interpolated on the sphere, so a path's points are evenly spaced along it.
+pub fn intermediate(from: LatLon, to: LatLon, f: f64) -> LatLon {
+    let unit = |p: LatLon| {
+        let (lat, lon) = (p.lat.to_radians(), p.lon.to_radians());
+        [lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()]
+    };
+    let (a, b) = (unit(from), unit(to));
+    let dot = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).clamp(-1.0, 1.0);
+    let w = dot.acos();
+    // the two ends nearly together: a straight line between them is the arc to many decimals
+    let (sa, sb) = if w < 1e-12 {
+        (1.0 - f, f)
+    } else {
+        (((1.0 - f) * w).sin() / w.sin(), (f * w).sin() / w.sin())
+    };
+    let [x, y, z] = [0, 1, 2].map(|k| sa * a[k] + sb * b[k]);
+    LatLon {
+        lat: z.atan2(x.hypot(y)).to_degrees(),
+        lon: y.atan2(x).to_degrees(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +226,27 @@ mod tests {
         assert!(close(distance_km(tangier, belgrade), 2440.5, 5.0));
         assert!(close(bearing_deg(tangier, belgrade), 57.41, 0.2));
         assert!(close(bearing_deg(belgrade, tangier), 254.73, 0.2));
+    }
+
+    #[test]
+    fn points_along_a_great_circle() {
+        let atlanta = LatLon { lat: 33.75, lon: -84.39 };
+        let london = LatLon { lat: 51.51, lon: -0.13 };
+        let whole = distance_km(atlanta, london);
+        assert_eq!(intermediate(atlanta, london, 0.0), atlanta);
+        let end = intermediate(atlanta, london, 1.0);
+        assert!(close(end.lat, london.lat, 1e-9) && close(end.lon, london.lon, 1e-9), "{end:?}");
+        for f in [0.1, 0.25, 0.5, 0.9] {
+            let p = intermediate(atlanta, london, f);
+            assert!(close(distance_km(atlanta, p), f * whole, 1e-6), "{f}: {p:?}");
+            assert!(close(distance_km(p, london), (1.0 - f) * whole, 1e-6), "{f}: {p:?}");
+        }
+        // the great circle bulges north of both ends' latitudes
+        assert!(intermediate(atlanta, london, 0.7).lat > london.lat);
+        // across the antimeridian, halfway from Fiji to Samoa is near it, not over Africa
+        let mid = intermediate(LatLon { lat: -18.1, lon: 178.4 }, LatLon { lat: -13.8, lon: -171.8 }, 0.5);
+        assert!(mid.lon.abs() > 175.0, "{mid:?}");
+        // the same point twice
+        assert_eq!(intermediate(atlanta, atlanta, 0.5), atlanta);
     }
 }
