@@ -144,20 +144,18 @@ fn a_serial_receiver_is_read_at_the_speed_found() {
         }
     });
     let gps = Gps::start(Source::Serial {
-        port: name,
+        port: name.clone(),
         baud: None,
     });
-    let s = until(&gps, "a fix", |s| s.fix.is_some());
-    assert_eq!(
-        s.link,
-        match &s.link {
-            Link::Open { since_ms, .. } => Link::Open {
-                since_ms: *since_ms,
-                detail: Some("4800 baud".into())
-            },
-            other => panic!("{other:?}"),
-        }
-    );
+    // the reader says at once when it cannot open the port: no waiting out its retries
+    let s = until(&gps, "a fix, or the port refused", |s| {
+        s.fix.is_some() || matches!(s.link, Link::Failed { .. })
+    });
+    match &s.link {
+        Link::Open { detail, .. } => assert_eq!(detail.as_deref(), Some("4800 baud")),
+        Link::Failed { text, .. } => panic!("the reader could not use {name}: {text}"),
+        other => panic!("{other:?}"),
+    }
     drop(gps);
     let _ = stop_tx.send(());
     drop(slave);
