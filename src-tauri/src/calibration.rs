@@ -167,6 +167,8 @@ pub fn calibrate(
             mode: Mode::Ft8,
             required_reliability_pct: 90.0,
             long_path: false,
+            required_snr_db_hz: None,
+            frequencies_mhz: None,
         })?;
         let key = format!(
             "{}|{receiver}|ssn {:.1}|{TYPICAL_POWER_WATTS} W isotrope|noise {noise_db} dB",

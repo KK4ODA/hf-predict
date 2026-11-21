@@ -10,12 +10,17 @@ use crate::propagation::{
     PredictionRequest, PropagationEngine,
 };
 use crate::solar::{self, SsnUsed};
-use crate::station::{Band, Mode, StationProfile, HF_BANDS, ISOTROPE};
+use crate::station::{self, Band, Mode, StationProfile, HF_BANDS, ISOTROPE};
 
 /// VOACAP's authors recommend a 3 degree floor when an isotrope is used,
 /// because it has no ground losses at low angles.
 const MIN_ANGLE_ISOTROPE: f64 = 3.0;
 const MAX_SSN: f64 = 300.0;
+/// The required SNR a request may give, dB-Hz: from far below FT8's 13 to far above SSB's 38.
+const MIN_REQUIRED_SNR: f64 = -20.0;
+const MAX_REQUIRED_SNR: f64 = 120.0;
+/// The frequencies one engine run takes.
+const MAX_FREQUENCIES: usize = 11;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +37,14 @@ pub struct PathRequest {
     pub mode: Mode,
     pub required_reliability_pct: f64,
     pub long_path: bool,
+    /// The SNR a contact needs, dB in 1 Hz, from anything other than `mode`: a data modem's
+    /// slowest rung, say. Replaces `mode`'s when given.
+    #[serde(default)]
+    pub required_snr_db_hz: Option<f64>,
+    /// The frequencies to predict, MHz: at most eleven, each in an amateur HF band (a program's
+    /// own channels). The centres of `HF_BANDS` when not given.
+    #[serde(default)]
+    pub frequencies_mhz: Option<Vec<f64>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -115,6 +128,8 @@ pub struct Plan {
     pub rx: LatLon,
     pub ssn: SsnUsed,
     pub engine_request: PredictionRequest,
+    /// The band of each frequency, in the request's order.
+    pub bands: Vec<Band>,
 }
 
 impl Plan {
@@ -132,7 +147,7 @@ impl Plan {
             rx_bearing_deg: self.engine_request.rx_antenna.bearing_deg,
             ssn: self.ssn,
             required_snr_db_hz: self.engine_request.required_snr_db_hz,
-            bands: HF_BANDS.to_vec(),
+            bands: self.bands,
             engine: engine.to_string(),
             run,
         }
@@ -313,6 +328,8 @@ pub fn plan(request: &PathRequest) -> Result<Plan, String> {
     if !(1..=12).contains(&request.month) {
         return Err(format!("month {} is not 1-12", request.month));
     }
+    let required_snr_db_hz = required_snr(request)?;
+    let bands = bands_of(request)?;
 
     let ssn = match request.ssn {
         Some(value) if (0.0..=MAX_SSN).contains(&value) => SsnUsed::manual(value),
@@ -353,18 +370,121 @@ pub fn plan(request: &PathRequest) -> Result<Plan, String> {
         month: request.month,
         utc_hour: None,
         ssn: ssn.value,
-        frequencies_mhz: HF_BANDS.iter().map(|band| band.mhz).collect(),
+        frequencies_mhz: bands.iter().map(|band| band.mhz).collect(),
         tx_power_watts: request.tx_station.power_watts,
         tx_antenna: antenna(&request.tx_station, towards(tx, rx)),
         rx_antenna: antenna(&request.rx_station, towards(rx, tx)),
         rx_noise_db: request.rx_station.noise_db,
         min_angle_deg,
         required_reliability_pct: request.required_reliability_pct,
-        required_snr_db_hz: request.mode.required_snr_db_hz(),
+        required_snr_db_hz,
         coefficients: Coefficients::Ccir,
     };
 
-    Ok(Plan { tx, rx, ssn, engine_request })
+    Ok(Plan { tx, rx, ssn, engine_request, bands })
+}
+
+/// The SNR to ask the engine about: the request's own, or its mode's.
+fn required_snr(request: &PathRequest) -> Result<f64, String> {
+    match request.required_snr_db_hz {
+        None => Ok(request.mode.required_snr_db_hz()),
+        Some(snr) if snr.is_finite() && (MIN_REQUIRED_SNR..=MAX_REQUIRED_SNR).contains(&snr) => {
+            Ok(snr)
+        }
+        Some(snr) => Err(format!(
+            "a required SNR of {snr} dB-Hz is outside {MIN_REQUIRED_SNR} to {MAX_REQUIRED_SNR}"
+        )),
+    }
+}
+
+/// The bands to predict: the request's frequencies, each named by its amateur band, or every
+/// HF band's centre.
+fn bands_of(request: &PathRequest) -> Result<Vec<Band>, String> {
+    let Some(frequencies) = &request.frequencies_mhz else {
+        return Ok(HF_BANDS.to_vec());
+    };
+    if frequencies.is_empty() || frequencies.len() > MAX_FREQUENCIES {
+        return Err(format!("1 to {MAX_FREQUENCIES} frequencies, not {}", frequencies.len()));
+    }
+    frequencies
+        .iter()
+        .map(|&mhz| {
+            station::hf_band_at(mhz)
+                .ok_or_else(|| format!("{mhz} MHz is in no amateur HF band from 80 m to 10 m"))
+        })
+        .collect()
+}
+
+/// Both ways of a two-way contact: `there`, from the request's transmitter to its receiver,
+/// and `back`, with the two stations' roles swapped: each way has its own transmitter's power
+/// and antenna, and its own receiver's antenna and noise.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BothWays {
+    pub there: PathPrediction,
+    pub back: PathPrediction,
+}
+
+/// `request` the other way round: the receiver's station transmitting to the transmitter's.
+#[must_use]
+pub fn reversed(request: &PathRequest) -> PathRequest {
+    PathRequest {
+        tx_position: request.rx_position.clone(),
+        rx_position: request.tx_position.clone(),
+        tx_station: request.rx_station.clone(),
+        rx_station: request.tx_station.clone(),
+        ..request.clone()
+    }
+}
+
+/// Both ways of the contact `request` names. The two engine runs are independent and go side by
+/// side.
+///
+/// # Errors
+///
+/// The request is not valid, or the engine failed either way.
+pub fn predict_both_ways(
+    engine: &(dyn PropagationEngine + Sync),
+    request: &PathRequest,
+) -> Result<BothWays, String> {
+    std::thread::scope(|scope| {
+        let back = scope.spawn(|| predict_path(engine, &reversed(request)));
+        let there = predict_path(engine, request)?;
+        Ok(BothWays { there, back: join(back)? })
+    })
+}
+
+/// Both ways of each contact in `requests`, on `workers` threads (at least one), in the requests'
+/// order: one result each, so a request that fails does not hide the others.
+pub fn predict_both_ways_many(
+    engine: &(dyn PropagationEngine + Sync),
+    requests: &[PathRequest],
+    workers: usize,
+) -> Vec<Result<BothWays, String>> {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: Vec<std::sync::Mutex<Option<Result<BothWays, String>>>> =
+        requests.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|scope| {
+        for _ in 0..workers.clamp(1, requests.len().max(1)) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(request) = requests.get(i) else { break };
+                // each contact's two ways one after the other: the workers keep the cores busy
+                let both = predict_path(engine, request).and_then(|there| {
+                    Ok(BothWays { there, back: predict_path(engine, &reversed(request))? })
+                });
+                *results[i].lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(both);
+            });
+        }
+    });
+    results
+        .into_iter()
+        .map(|r| {
+            r.into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .unwrap_or_else(|| Err("a prediction thread panicked".into()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -421,6 +541,8 @@ mod tests {
             mode: Mode::Ssb,
             required_reliability_pct: 90.0,
             long_path: false,
+            required_snr_db_hz: None,
+            frequencies_mhz: None,
         }
     }
 
@@ -568,4 +690,84 @@ mod tests {
         request.tx_position = String::new();
         assert!(predict_path(&engine, &request).unwrap_err().starts_with("Transmitter:"));
     }
+
+    #[test]
+    fn a_required_snr_from_anywhere_replaces_the_modes() {
+        let engine = RecordingEngine::new();
+        predict_path(&engine, &atlanta_to_london()).unwrap();
+        assert_eq!(engine.request().required_snr_db_hz, Mode::Ssb.required_snr_db_hz());
+        // a data modem's slowest rung: Aether's tone-floor call on ITU Moderate, 20.3 dB-Hz
+        let rung = PathRequest { required_snr_db_hz: Some(20.3), ..atlanta_to_london() };
+        let prediction = predict_path(&engine, &rung).unwrap();
+        assert_eq!(engine.request().required_snr_db_hz, 20.3);
+        assert_eq!(prediction.required_snr_db_hz, 20.3);
+        for bad in [f64::NAN, -25.0, 121.0] {
+            let request = PathRequest { required_snr_db_hz: Some(bad), ..atlanta_to_london() };
+            assert!(plan(&request).is_err(), "{bad} dB-Hz accepted");
+        }
+    }
+
+    #[test]
+    fn a_programs_own_frequencies_are_named_by_their_band() {
+        let channels =
+            PathRequest { frequencies_mhz: Some(vec![7.101, 14.105, 3.5915]), ..atlanta_to_london() };
+        let planned = plan(&channels).unwrap();
+        assert_eq!(planned.engine_request.frequencies_mhz, vec![7.101, 14.105, 3.5915]);
+        let named: Vec<(&str, f64)> = planned.bands.iter().map(|b| (b.name, b.mhz)).collect();
+        assert_eq!(named, [("40 m", 7.101), ("20 m", 14.105), ("80 m", 3.5915)]);
+        // the FT8 dial of a band is its own, whatever frequency is predicted in it
+        assert_eq!(planned.bands[0].ft8_hz, 7_074_000);
+        let planned_with = |frequencies: Vec<f64>| {
+            plan(&PathRequest { frequencies_mhz: Some(frequencies), ..atlanta_to_london() }).map(|_| ())
+        };
+        assert!(planned_with(vec![]).is_err());
+        assert!(planned_with(vec![7.1; 12]).is_err(), "an engine run takes eleven");
+        assert!(planned_with(vec![6.0]).is_err(), "no amateur band at 6 MHz");
+        assert!(planned_with(vec![1.84]).is_err(), "160 m is below the model");
+        assert!(planned_with(vec![50.3]).is_err(), "6 m is not HF");
+        assert!(planned_with(vec![7.101; 11]).is_ok());
+    }
+
+    #[test]
+    fn both_ways_swaps_the_stations_and_their_roles() {
+        let engine = RecordingEngine::new();
+        let both = predict_both_ways(&engine, &atlanta_to_london()).unwrap();
+        let seen = engine.requests();
+        assert_eq!(seen.len(), 2);
+        let there = seen.iter().find(|r| r.tx_name == "EM73tr").expect("there");
+        let back = seen.iter().find(|r| r.tx_name == "51.51, -0.13").expect("back");
+        let presets = station::presets();
+        // each way, its own transmitter's power and antenna, and its own receiver's noise
+        assert_eq!(there.tx_power_watts, presets[0].power_watts);
+        assert_eq!(there.tx_antenna.file, presets[0].antenna);
+        assert_eq!(there.rx_antenna.file, presets[1].antenna);
+        assert_eq!(there.rx_noise_db, presets[1].noise_db);
+        assert_eq!(back.tx_power_watts, presets[1].power_watts);
+        assert_eq!(back.tx_antenna.file, presets[1].antenna);
+        assert_eq!(back.rx_antenna.file, presets[0].antenna);
+        assert_eq!(back.rx_noise_db, presets[0].noise_db);
+        // the antennas still face each other: back's are there's, swapped
+        assert_eq!(back.tx_antenna.bearing_deg, there.rx_antenna.bearing_deg);
+        assert_eq!(back.rx_antenna.bearing_deg, there.tx_antenna.bearing_deg);
+        assert_eq!((both.there.tx, both.there.rx), (both.back.rx, both.back.tx));
+    }
+
+    #[test]
+    fn many_contacts_come_back_in_order_each_with_its_own_result() {
+        let engine = RecordingEngine::new();
+        let requests = vec![
+            atlanta_to_london(),
+            PathRequest { month: 13, ..atlanta_to_london() },
+            PathRequest { rx_position: "FN31pr".into(), ..atlanta_to_london() },
+        ];
+        let results = predict_both_ways_many(&engine, &requests, 2);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].as_ref().map(|b| b.there.rx_locator.clone()), Ok("IO91wm".into()));
+        assert!(results[1].as_ref().is_err_and(|e| e.contains("month 13")));
+        assert_eq!(results[2].as_ref().map(|b| b.back.tx_locator.clone()), Ok("FN31pr".into()));
+        // two runs for each contact that could be planned
+        assert_eq!(engine.requests().len(), 4);
+        assert!(predict_both_ways_many(&engine, &[], 4).is_empty());
+    }
 }
+

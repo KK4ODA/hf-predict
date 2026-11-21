@@ -166,6 +166,8 @@ fn make_plan(app: &tauri::AppHandle, query: &PlanQuery) -> Result<scan::Plan, St
                     mode: station::Mode::Ft8,
                     required_reliability_pct: 90.0,
                     long_path: false,
+                    required_snr_db_hz: None,
+                    frequencies_mhz: None,
                 },
             )?;
             let hours = &overview.short.prediction.run.prediction.hours;

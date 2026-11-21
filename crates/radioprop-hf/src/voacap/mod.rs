@@ -178,6 +178,8 @@ mod tests {
             mode: Mode::Ft8,
             required_reliability_pct: 90.0,
             long_path: false,
+            required_snr_db_hz: None,
+            frequencies_mhz: None,
         };
 
         let result = predict_path(&engine("amateur"), &request).unwrap();
@@ -217,6 +219,8 @@ mod tests {
             mode: Mode::Ft8,
             required_reliability_pct: 90.0,
             long_path: false,
+            required_snr_db_hz: None,
+            frequencies_mhz: None,
         };
 
         let overview = predict_overview(&engine("overview"), &request).unwrap();
@@ -267,4 +271,50 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    fn both_ways_on_the_engine_are_each_their_own() {
+        // VOACAP is not reciprocal: it takes its control points, absorption and noise near each
+        // end. With the same station at both ends, on five paths from Atlanta (2026-11-21), the two
+        // ways' loss differed by up to 7 dB and their MUFday by 0.09 even where the path is open on
+        // 90 % of days, and by far more near the MUF. So each way is run, never one mirrored.
+        let presets = station::presets();
+        let request = PathRequest {
+            tx_position: "EM73tr".into(),
+            rx_position: "IO91wm".into(),
+            year: 2026,
+            month: 11,
+            ssn: None,
+            tx_station: presets[0].clone(),
+            rx_station: presets[0].clone(),
+            mode: Mode::Ft8,
+            required_reliability_pct: 90.0,
+            long_path: false,
+            required_snr_db_hz: Some(20.3),
+            frequencies_mhz: Some(vec![7.101, 10.14, 14.105]),
+        };
+        let both = crate::predictor::predict_both_ways(&engine("both-ways"), &request).unwrap();
+        let (there, back) = (&both.there.run.prediction, &both.back.run.prediction);
+        assert!((both.there.distance_km - both.back.distance_km).abs() < 0.01);
+        assert_eq!((there.hours.len(), back.hours.len()), (24, 24));
+        let mut differs = false;
+        for (a, b) in there.hours.iter().zip(&back.hours) {
+            assert_eq!(a.utc_hour, b.utc_hour);
+            for (fa, fb) in a.frequencies.iter().zip(&b.frequencies) {
+                assert_eq!(fa.freq_mhz, fb.freq_mhz, "the same frequencies each way");
+                // each receiver's noise is its own place's
+                differs |= fa.noise_dbw != fb.noise_dbw;
+            }
+        }
+        assert!(differs, "the noise at Atlanta and at London were the same every hour");
+        // a lower requirement is met on as many days or more
+        let easier = PathRequest { required_snr_db_hz: Some(13.0), ..request };
+        let lower = crate::predictor::predict_path(&engine("both-ways-ft8"), &easier).unwrap();
+        for (a, b) in lower.run.prediction.hours.iter().zip(&there.hours) {
+            for (fa, fb) in a.frequencies.iter().zip(&b.frequencies) {
+                assert!(fa.reliability >= fb.reliability, "hour {}: {fa:?} {fb:?}", a.utc_hour);
+            }
+        }
+    }
 }
+
