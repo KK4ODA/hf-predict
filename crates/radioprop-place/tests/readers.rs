@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The readers against stand-ins: a phone serving NMEA over TCP that then stops, datagrams to the
-//! UDP reader, a gpsd that must be asked with `?WATCH`, and (on Linux and macOS) a serial port
-//! that is a pseudo-terminal, its speed found.
+//! UDP reader, a gpsd that must be asked with `?WATCH`, a serial port that cannot be opened, and (on
+//! Linux) a serial port that is a pseudo-terminal, its speed found.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, UdpSocket};
@@ -128,7 +128,33 @@ fn gpsd_is_asked_to_watch_and_its_reports_give_a_fix() {
     assert_eq!(s.fix.and_then(|f| f.alt_m), Some(318.2));
 }
 
-#[cfg(unix)]
+/// A port that cannot be opened is said, with why, at once: the operator sees it rather than a
+/// reader that seems to be starting.
+#[test]
+fn a_serial_port_that_cannot_be_opened_is_said_with_why() {
+    let port = if cfg!(windows) {
+        "COM250"
+    } else {
+        "/dev/radioprop-no-such-port"
+    };
+    let gps = Gps::start(Source::Serial {
+        port: port.into(),
+        baud: None,
+    });
+    let s = until(&gps, "the port refused", |s| {
+        matches!(s.link, Link::Failed { .. })
+    });
+    let Link::Failed { text, .. } = s.link else {
+        unreachable!()
+    };
+    assert!(text.starts_with(&format!("cannot open {port}: ")), "{text}");
+}
+
+/// A pseudo-terminal stands in for the receiver. Linux only: on macOS the serial library sets a
+/// port's speed with the `IOSSIOSPEED` ioctl, which a pseudo-terminal refuses ("Not a typewriter",
+/// seen in CI on 2026-11-21) while a real USB port takes it, so no pseudo-terminal can be opened
+/// there by name; Windows has none.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_serial_receiver_is_read_at_the_speed_found() {
     use serialport::{SerialPort, TTYPort};
