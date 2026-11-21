@@ -148,6 +148,8 @@ pub(crate) fn plan_area(request: &CoverageRequest, any_point: LatLon) -> Result<
         mode: request.mode,
         required_reliability_pct: request.required_reliability_pct,
         long_path: false,
+        required_snr_db_hz: None,
+        frequencies_mhz: None,
     })
 }
 
@@ -474,6 +476,8 @@ mod tests {
             mode: request.mode,
             required_reliability_pct: request.required_reliability_pct,
             long_path: false,
+            required_snr_db_hz: None,
+            frequencies_mhz: None,
         };
         let direct = predictor::predict_path(&engine, &path).unwrap();
         let hour = direct

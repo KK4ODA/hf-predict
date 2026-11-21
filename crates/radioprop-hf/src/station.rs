@@ -167,6 +167,19 @@ const BAND_EDGES: [(&str, u64, u64); 11] = [
     ("6 m", 50_000_000, 54_000_000),
 ];
 
+/// The HF band (80 m to 10 m) a frequency is in, `mhz` taken as its prediction frequency; `None`
+/// outside them.
+#[must_use]
+pub fn hf_band_at(mhz: f64) -> Option<Band> {
+    if !mhz.is_finite() || mhz <= 0.0 {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let hz = (mhz * 1e6).round() as u64;
+    let (name, _, _) = BAND_EDGES.iter().find(|(_, low, high)| (*low..=*high).contains(&hz))?;
+    HF_BANDS.iter().find(|band| band.name == *name).map(|band| Band { mhz, ..*band })
+}
+
 /// The amateur band a frequency is in, or the frequency itself outside them.
 pub fn band_for_hz(hz: u64) -> String {
     BAND_EDGES
