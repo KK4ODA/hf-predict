@@ -25,9 +25,12 @@ pub struct UserData {
     pub log_files: Vec<LogFile>,
 }
 
-/// A missing file is an empty `UserData`; an unreadable one is an error.
+/// A missing file is an empty `UserData`; an unreadable one is an error. Saved station profiles
+/// come back as this version reads them (`station::corrected`).
 pub fn load(path: &Path) -> Result<UserData, String> {
-    jsonfile::load(path)
+    let mut data: UserData = jsonfile::load(path)?;
+    data.stations = data.stations.into_iter().map(crate::station::corrected).collect();
+    Ok(data)
 }
 
 pub fn save(path: &Path, data: &UserData) -> Result<(), String> {
@@ -64,6 +67,20 @@ mod tests {
         assert_eq!(load(&path).unwrap(), data);
         save(&path, &UserData::default()).unwrap();
         assert_eq!(load(&path).unwrap(), UserData::default());
+    }
+
+    #[test]
+    fn a_profile_saved_with_the_earlier_rural_level_loads_as_rural() {
+        let path = scratch_file("earlier-rural");
+        let mut earlier = station::presets();
+        for s in &mut earlier {
+            if s.noise_db == station::NOISE_RURAL {
+                s.noise_db = 155.0;
+            }
+        }
+        assert!(earlier.iter().any(|s| s.noise_db == 155.0), "the presets name rural noise");
+        save(&path, &UserData { stations: earlier, ..UserData::default() }).unwrap();
+        assert_eq!(load(&path).unwrap().stations, station::presets());
     }
 
     #[test]

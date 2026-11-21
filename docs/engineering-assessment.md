@@ -645,7 +645,7 @@ Each module reports an explicit state (OK, degraded, stale, down) to a status ba
 
 - Power, mode (sets required SNR), antennas from VOACAP's library, height, noise level, minimum takeoff angle.
 - Verified reference values:
-  - Noise: 145 residential, 155 quiet, 164 remote (−dBW/Hz at 3 MHz).
+  - Noise: 145 residential, 150 rural, 164 remote (quiet rural) (−dBW/Hz at 3 MHz). *Corrected 2026-11-21: this line said 155 "quiet", which is no ITU-R P.372 category; P.372-18 Table 1 gives −144.7 residential, −150.0 rural and −164.0 quiet rural at 3 MHz.*
   - Required SNR: CW 19–24, SSB 38–45 dB-Hz.
   - Minimum angle: 3° with isotropic antennas.
 - Presets: QRP portable, 100 W dipole, mobile, EmComm portable (NVIS), fixed gateway.
