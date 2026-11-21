@@ -2,21 +2,16 @@ pub mod calibration;
 pub mod compare;
 pub mod contacts;
 pub mod coverage;
-pub mod engine;
 pub use radioprop_geo as geo;
+// the HF propagation library, under the names the app's modules have always used
+pub use radioprop_hf::{engine, predictor, propagation, solar, station, timeutil, voacap};
 pub mod jsonfile;
 pub mod observations;
-pub mod predictor;
-pub mod propagation;
 pub mod radio;
 pub mod scan;
 pub mod scanner;
-pub mod solar;
 pub mod spacewx;
-pub mod station;
-pub mod timeutil;
 pub mod userdata;
-pub mod voacap;
 pub mod wsjtx;
 
 use std::path::PathBuf;

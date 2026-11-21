@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! VOACAP as a `PropagationEngine`, run through the bundled `voacapl` binary.
 
 pub mod deck;
@@ -140,7 +141,7 @@ mod tests {
         let request = deck::tests::reference_request();
         let run = engine("reference").predict(&request).unwrap();
         let expected =
-            output::parse_output(include_str!("../../../tests/engine/cases/test01.out")).unwrap();
+            output::parse_output(include_str!("../../../../tests/engine/cases/test01.out")).unwrap();
 
         assert_eq!(run.prediction.hours.len(), expected.hours.len());
         for (actual, expected) in run.prediction.hours.iter().zip(&expected.hours) {

@@ -83,19 +83,21 @@ npm install
 npm run tauri dev                # or: npm run tauri build
 ```
 
-Tests: `sh tests/engine/run-reference.sh` (engine reference cases) and `cargo test --workspace` (the app's 130 or so unit and integration tests, including a stand-in `rigctld` over TCP and a UDP listener). Longer checks that need local data are ignored by default and documented in the test files: the importer and the calibration over a real `ALL.TXT`, and starting the real `rigctld` with Hamlib's dummy radio.
+Tests: `sh tests/engine/run-reference.sh` (engine reference cases) and `cargo test --workspace` (the app's and the libraries' 200 or so unit and integration tests, including a stand-in `rigctld` over TCP and a UDP listener). Longer checks that need local data are ignored by default and documented in the test files: the importer and the calibration over a real `ALL.TXT`, and starting the real `rigctld` with Hamlib's dummy radio.
 
 ### Libraries
 
 The repository is a Cargo workspace: the app in `src-tauri`, and in `crates/` libraries with no
 Tauri in them, which other programs use too ([RadioPost](https://github.com/KK4ODA/RadioPost) first,
-by git revision). They are the start of the split RadioPost's design describes (*Choosing a gateway*,
-§11); the engine and the predictor move into a library of their own later.
+by git revision). They are the split RadioPost's design describes (*Choosing a gateway*, §11). The
+app keeps its views, its database, the coverage grid (cached in that database), the observations,
+the scanner and radio control.
 
 | Crate | Holds |
 |---|---|
 | `radioprop-geo` | Positions, Maidenhead locators, great-circle distance, bearing and the points along it (the app's `geo`) |
 | `radioprop-place` | Saved places, a GPS read over a serial port, TCP, UDP or gpsd, how fresh its fix is, and which gives the position in use; station profiles (power, antennas, feed line, noise by ITU-R P.372), every value set or assumed |
+| `radioprop-hf` | HF propagation: the VOACAP engine (`voacapl`) run as a subprocess, its input decks and output, the request and prediction types and the engine trait, the station model VOACAP is given (power, antenna, noise, required SNR), the bundled smoothed sunspot table, and predictions over one path (short and long, MUF, FOT, LUF). The app's `engine`, `voacap`, `propagation`, `station`, `solar`, `predictor` and `timeutil` are this crate. The engine itself is built by `engines/voacapl/build.sh`; a program points the crate at the folder it was put in |
 | `radioprop-terrain` | Terrain for VHF and UHF paths: Copernicus DEM tiles (GLO-30 and GLO-90) read from their GeoTIFFs and kept in a compact form, path profiles, the Earth's bulge, clearance and the first Fresnel zone, diffraction loss by ITU-R P.526-16 (§ 4.5, written from the Recommendation and tested against cases worked by hand), and link budgets. It names the tiles' URLs and converts what was fetched; fetching is the program's |
 
 What is made from the Copernicus DEM carries Copernicus's notice: produced using Copernicus WorldDEM-30 (or WorldDEM™-90) © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30 (or WorldDEM™-90).

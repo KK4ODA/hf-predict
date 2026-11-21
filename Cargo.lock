@@ -1301,6 +1301,7 @@ name = "hf-predict"
 version = "0.14.0"
 dependencies = [
  "radioprop-geo",
+ "radioprop-hf",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2626,6 +2627,15 @@ name = "radioprop-geo"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "radioprop-hf"
+version = "0.1.0"
+dependencies = [
+ "radioprop-geo",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

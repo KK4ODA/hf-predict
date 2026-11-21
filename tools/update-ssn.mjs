@@ -1,4 +1,4 @@
-// Builds src-tauri/data/smoothed-ssn.json from NOAA SWPC's solar-cycle tables.
+// Builds crates/radioprop-hf/data/smoothed-ssn.json from NOAA SWPC's solar-cycle tables.
 //
 //   node tools/update-ssn.mjs
 //
@@ -62,7 +62,7 @@ const table = {
   },
 };
 
-const target = new URL("../src-tauri/data/smoothed-ssn.json", import.meta.url);
+const target = new URL("../crates/radioprop-hf/data/smoothed-ssn.json", import.meta.url);
 await writeFile(target, JSON.stringify(table) + "\n");
 console.log(
   `observed ${table.observed.start}..${lastObserved}, ` +

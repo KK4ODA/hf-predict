@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Writes VOACAP input decks. Cards are fixed-column; the layouts follow the
 //! engine's own `read` formats.
 
@@ -164,7 +165,7 @@ pub(crate) mod tests {
 
     #[test]
     fn reproduces_reference_deck() {
-        let expected = include_str!("../../../tests/engine/cases/test01.dat").replace("\r\n", "\n");
+        let expected = include_str!("../../../../tests/engine/cases/test01.dat").replace("\r\n", "\n");
         assert_eq!(write_deck(&reference_request()).unwrap(), expected);
     }
 

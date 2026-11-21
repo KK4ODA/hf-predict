@@ -1,0 +1,13 @@
+[package]
+name = "radioprop-hf"
+version = "0.1.0"
+description = "HF propagation: the VOACAP engine runner, decks and output, station models, the sunspot table, and predictions over a path"
+authors = ["The hf-predict contributors"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+repository = "https://github.com/KK4ODA/hf-predict"
+
+[dependencies]
+radioprop-geo = { path = "../radioprop-geo" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

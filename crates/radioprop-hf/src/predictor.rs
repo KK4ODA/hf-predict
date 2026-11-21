@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Turns what the operator asks for (two positions, a month, two stations)
 //! into an engine request, and returns the prediction with its provenance.
 
@@ -109,7 +110,7 @@ pub struct PathOverview {
 }
 
 /// A validated request, ready for the engine.
-pub(crate) struct Plan {
+pub struct Plan {
     pub tx: LatLon,
     pub rx: LatLon,
     pub ssn: SsnUsed,
@@ -161,7 +162,8 @@ pub fn predict_overview(
     })
 }
 
-pub(crate) fn join<T>(handle: std::thread::ScopedJoinHandle<'_, Result<T, String>>) -> Result<T, String> {
+/// The result of a prediction thread, or why there is none when it panicked.
+pub fn join<T>(handle: std::thread::ScopedJoinHandle<'_, Result<T, String>>) -> Result<T, String> {
     handle.join().unwrap_or_else(|_| Err("a prediction thread panicked".into()))
 }
 
@@ -304,7 +306,8 @@ fn luf(points: &[SweepPoint], required_snr: f64) -> Option<f64> {
     }
 }
 
-pub(crate) fn plan(request: &PathRequest) -> Result<Plan, String> {
+/// Checks a request and resolves its positions, sunspot number and engine request.
+pub fn plan(request: &PathRequest) -> Result<Plan, String> {
     let tx = geo::parse_position(&request.tx_position).map_err(|e| format!("Transmitter: {e}"))?;
     let rx = geo::parse_position(&request.rx_position).map_err(|e| format!("Receiver: {e}"))?;
     if !(1..=12).contains(&request.month) {
@@ -396,7 +399,7 @@ mod tests {
         }
         fn predict(&self, request: &PredictionRequest) -> Result<EngineRun, String> {
             self.seen.lock().unwrap().push(request.clone());
-            let output = include_str!("../../tests/engine/cases/test01.out");
+            let output = include_str!("../../../tests/engine/cases/test01.out");
             Ok(EngineRun {
                 prediction: parse_output(output)?,
                 input: String::new(),

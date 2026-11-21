@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The monthly smoothed sunspot table: the one solar input the model takes.
 //!
 //! A table is bundled with the app (see `tools/update-ssn.mjs`) so predictions

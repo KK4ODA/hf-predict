@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Parses VOACAP Method 30 output.
 //!
 //! Each hour is a block of rows. A row is a 6-character hour field, twelve
@@ -119,7 +120,7 @@ fn parse_hour(freq_row: &str, rows: &HashMap<&str, &str>) -> Result<HourPredicti
 mod tests {
     use super::*;
 
-    const REFERENCE: &str = include_str!("../../../tests/engine/cases/test01.out");
+    const REFERENCE: &str = include_str!("../../../../tests/engine/cases/test01.out");
 
     #[test]
     fn parses_windows_voacap_reference_output() {

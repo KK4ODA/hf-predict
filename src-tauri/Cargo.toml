@@ -23,6 +23,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 radioprop-geo = { path = "../crates/radioprop-geo" }
+radioprop-hf = { path = "../crates/radioprop-hf" }
 serde_json = "1"
 ureq = "2"
 socket2 = { version = "0.5", features = ["all"] }
