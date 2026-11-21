@@ -95,7 +95,7 @@ by git revision). They are the start of the split RadioPost's design describes (
 | Crate | Holds |
 |---|---|
 | `radioprop-geo` | Positions, Maidenhead locators, great-circle distance and bearing (the app's `geo`) |
-| `radioprop-place` | Saved places, a GPS read over a serial port, TCP, UDP or gpsd, how fresh its fix is, and which gives the position in use |
+| `radioprop-place` | Saved places, a GPS read over a serial port, TCP, UDP or gpsd, how fresh its fix is, and which gives the position in use; station profiles (power, antennas, feed line, noise by ITU-R P.372), every value set or assumed |
 
 The [engineering assessment](docs/engineering-assessment.md) covers engine selection, licensing, WSJT-X integration, CAT architecture, the roadmap, and what each phase found.
 

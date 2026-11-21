@@ -13,14 +13,18 @@
 //! * [`read`] runs a reader on a thread: a serial port (its speed given or found), a TCP
 //!   connection, a UDP port, or gpsd.
 //! * [`place`] keeps the places and chooses the position in use.
+//! * [`station`] holds station profiles: power, antennas, feed line and noise, every value set or
+//!   assumed.
 
 pub mod gpsd;
 pub mod nmea;
 pub mod place;
 pub mod read;
+pub mod station;
 pub mod track;
 
 pub use nmea::Quality;
 pub use place::{choose, Book, Choice, Chosen, Here, Origin, Place};
 pub use read::{now_ms, serial_ports, Gps, Link, Source, Status};
+pub use station::{Resolved, StationProfile};
 pub use track::{Fix, Freshness, Hearing, Tracker};
