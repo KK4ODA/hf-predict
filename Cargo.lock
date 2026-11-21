@@ -2639,6 +2639,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "radioprop-terrain"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "radioprop-geo",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
