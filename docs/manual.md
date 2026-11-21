@@ -22,8 +22,9 @@ This manual describes version 0.14.0.
 12. [Scanning](#scanning)
 13. [Stations, places and settings](#stations-places-and-settings)
 14. [Where your data is kept](#where-your-data-is-kept)
-15. [Troubleshooting](#troubleshooting)
-16. [What the app will not do](#what-the-app-will-not-do)
+15. [Other programs on this computer](#other-programs-on-this-computer)
+16. [Troubleshooting](#troubleshooting)
+17. [What the app will not do](#what-the-app-will-not-do)
 
 ## Installing
 
@@ -527,6 +528,39 @@ Saved stations, places and the list of logs are kept in `userdata.json`. Decodes
 | Linux | `~/.config/io.github.kk4oda.hfpredict` | `~/.local/share/io.github.kk4oda.hfpredict` |
 
 The ALL.TXT logs stay where WSJT-X keeps them.
+
+## Other programs on this computer
+
+While HF Predict runs, another program on the same computer can ask it what you have heard lately
+toward a place: [RadioPost](https://github.com/KK4ODA/RadioPost) does, to say beside a gateway's HF
+channel whether FT8 from stations near that gateway is reaching you now. The answer is the same
+comparison the Compare view makes, without the prediction: for each band, how long you listened,
+how many stations near the place (or along the way to it) you heard, the strongest of them, and how
+many stations there were heard reporting you or your neighbours.
+
+It is a small, read-only web address on your own computer, `http://127.0.0.1:8625/v1/evidence`.
+Only programs on this computer can reach it; nothing is sent anywhere, and nothing it is asked
+changes anything. If another program already uses port 8625, HF Predict leaves it alone and the
+address is simply not there.
+
+For programmers:
+
+```
+GET http://127.0.0.1:8625/v1/evidence?from=33.75,-84.39&toward=41.71,-72.73&since=1794687840&bands=40m,20m
+```
+
+| Parameter | Meaning |
+|---|---|
+| `from` | Where this station is, latitude and longitude. Required. |
+| `toward` | A place, latitude and longitude. Repeat it for several, at most 200. |
+| `since` | How far back, in seconds since 1970. An hour ago if left out; never more than a day. |
+| `bands` | The bands, such as `40m,20m`. Every HF band if left out. |
+
+The answer lists each place with each band's `tier`: `notSampled` (under a minute listened to,
+so nothing can be said), `none`, `limited`, `moderate` or `strong`, the same thresholds as Compare.
+Beside it: `periods_listened`, `stations` heard near the place or along the way, `best_snr_db`,
+`examples` (callsigns), `hearing_stations`, `hearing_best_report_db` and `hearing_you`. A request
+for another address, or sent under a name other than `127.0.0.1` or `localhost`, is refused.
 
 ## Troubleshooting
 
