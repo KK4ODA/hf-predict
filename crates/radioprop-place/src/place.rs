@@ -18,6 +18,7 @@ use radioprop_geo::{distance_km, from_maidenhead, to_maidenhead, LatLon};
 use serde::{Deserialize, Serialize};
 
 use crate::read::{Link, Source, Status};
+use crate::station::StationProfile;
 use crate::track::{Fix, Freshness, Hearing};
 
 /// How near the GPS's last fix a saved place must be to stand in for it, in kilometres.
@@ -162,6 +163,13 @@ pub struct Book {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gps: Option<Source>,
     pub choice: Choice,
+    /// The station profiles (§6.5 of RadioPost's design).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stations: Vec<StationProfile>,
+    /// The profile chosen; none, the one the place in use names, else the default place's, else
+    /// the first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub station: Option<String>,
 }
 
 impl Book {
@@ -260,7 +268,76 @@ impl Book {
             })
     }
 
+    /// Adds a station profile, or replaces the one with its id; one with no id gets one from its
+    /// name. Returns its id.
+    ///
+    /// # Errors
+    ///
+    /// The profile has no name, or numbers out of reason.
+    pub fn put_station(&mut self, mut profile: StationProfile) -> Result<String, String> {
+        if let Some(why) = profile.problem() {
+            return Err(why);
+        }
+        profile.name = profile.name.trim().to_owned();
+        if let Some(i) = self.stations.iter().position(|s| s.id == profile.id) {
+            self.stations[i] = profile;
+            return Ok(self.stations[i].id.clone());
+        }
+        profile.id = slug_id("st", &profile.name, |id| {
+            self.stations.iter().any(|s| s.id == id)
+        });
+        let id = profile.id.clone();
+        self.stations.push(profile);
+        Ok(id)
+    }
+
+    /// Removes a station profile, and every place's mention of it. False: no such profile.
+    pub fn remove_station(&mut self, id: &str) -> bool {
+        let before = self.stations.len();
+        self.stations.retain(|s| s.id != id);
+        if self.stations.len() == before {
+            return false;
+        }
+        for p in &mut self.places {
+            if p.station.as_deref() == Some(id) {
+                p.station = None;
+            }
+        }
+        if self.station.as_deref() == Some(id) {
+            self.station = None;
+        }
+        true
+    }
+
+    /// A station profile by its id.
+    #[must_use]
+    pub fn station(&self, id: &str) -> Option<&StationProfile> {
+        self.stations.iter().find(|s| s.id == id)
+    }
+
+    /// The profile in use with the position `chosen`: the one chosen, else the one the place in
+    /// use names, else the default place's, else the first.
+    #[must_use]
+    pub fn station_in_use(&self, chosen: &Chosen) -> Option<&StationProfile> {
+        let named = |id: Option<&String>| id.and_then(|id| self.station(id));
+        let place = match chosen.here.as_ref().map(|h| &h.from) {
+            Some(From::Place { id, .. }) => self.get(id),
+            _ => None,
+        };
+        named(self.station.as_ref())
+            .or_else(|| named(place.and_then(|p| p.station.as_ref())))
+            .or_else(|| named(self.default_place().and_then(|p| p.station.as_ref())))
+            .or_else(|| self.stations.first())
+    }
+
     fn new_id(&self, name: &str) -> String {
+        slug_id("pl", name, |id| self.get(id).is_some())
+    }
+}
+
+/// An id from a name: `prefix-` and the name's letters and digits, made unique by `-2`, `-3`, ….
+fn slug_id(prefix: &str, name: &str, taken: impl Fn(&str) -> bool) -> String {
+    {
         let slug: String = name
             .to_lowercase()
             .chars()
@@ -270,7 +347,11 @@ impl Book {
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join("-");
-        let base = format!("pl-{}", if slug.is_empty() { "place" } else { &slug });
+        let fallback = if prefix == "pl" { "place" } else { "station" };
+        let base = format!(
+            "{prefix}-{}",
+            if slug.is_empty() { fallback } else { &slug }
+        );
         (1..)
             .map(|n| {
                 if n == 1 {
@@ -279,7 +360,7 @@ impl Book {
                     format!("{base}-{n}")
                 }
             })
-            .find(|id| self.get(id).is_none())
+            .find(|id| !taken(id))
             .unwrap_or(base)
     }
 }
@@ -593,6 +674,64 @@ mod tests {
         b.save(&path).expect("saved");
         assert_eq!(Book::load(&path), Ok(b));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_station_in_use_is_the_one_chosen_or_the_places_or_the_first() {
+        let mut b = book();
+        let home = b
+            .put_station(StationProfile {
+                name: "Home, FTDX10".into(),
+                ..StationProfile::default()
+            })
+            .expect("kept");
+        let mobile = b
+            .put_station(StationProfile {
+                name: "Mobile, TS-480".into(),
+                vehicle: true,
+                ..StationProfile::default()
+            })
+            .expect("kept");
+        assert_eq!(
+            (home.as_str(), mobile.as_str()),
+            ("st-home-ftdx10", "st-mobile-ts-480")
+        );
+        let at_home = choose(&b, None, NOW);
+        // nothing names one: the first
+        assert_eq!(
+            b.station_in_use(&at_home).map(|s| s.id.as_str()),
+            Some("st-home-ftdx10")
+        );
+        // Field Day names the mobile profile, and is the place in use
+        b.places[1].station = Some(mobile.clone());
+        b.choice = Choice::Place {
+            id: "pl-field-day".into(),
+        };
+        let there = choose(&b, None, NOW);
+        assert_eq!(
+            b.station_in_use(&there).map(|s| s.id.as_str()),
+            Some("st-mobile-ts-480")
+        );
+        // a profile chosen wins
+        b.station = Some(home.clone());
+        assert_eq!(
+            b.station_in_use(&there).map(|s| s.id.as_str()),
+            Some("st-home-ftdx10")
+        );
+        // removed, it is forgotten everywhere
+        assert!(b.remove_station(&mobile));
+        assert_eq!(b.places[1].station, None);
+        assert!(b
+            .put_station(StationProfile {
+                name: "  ".into(),
+                ..StationProfile::default()
+            })
+            .is_err());
+        // changed in place, by its id
+        let mut changed = b.station(&home).cloned().expect("kept");
+        changed.hf.power_w = Some(50.0);
+        assert_eq!(b.put_station(changed).expect("kept"), home);
+        assert_eq!(b.station(&home).and_then(|s| s.hf.power_w), Some(50.0));
     }
 
     #[test]
