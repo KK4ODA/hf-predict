@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Runs the bundled VOACAP engine (`voacapl`) as a subprocess.
 
 use std::fs;

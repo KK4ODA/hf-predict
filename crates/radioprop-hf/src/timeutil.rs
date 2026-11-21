@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! UTC time as seconds since the Unix epoch, without a date-time crate.
 
 use std::time::{SystemTime, UNIX_EPOCH};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Station profiles, antenna choices, operating modes and amateur bands.
 
 use serde::{Deserialize, Serialize};

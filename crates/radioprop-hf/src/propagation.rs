@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Engine-independent prediction types and the engine interface.
 
 use serde::{Deserialize, Serialize};
